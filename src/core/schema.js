@@ -1,6 +1,14 @@
 // src/core/schema.js
-// Faz 1: Çekirdek token kullanım kaydı modeli ve doğrulama (Saf / Pure Core katmanı).
+// Faz 1 - 2: Çekirdek token ve fiyat veri modelleri ile doğrulama (Saf / Pure Core katmanı).
 // KURAL: Bu dosyada document, window, localStorage veya fetch KULLANILMAZ.
+
+/** Geçerli fiyat kaynakları. */
+export const VALID_PRICING_SOURCES = Object.freeze([
+  'litellm',
+  'openrouter',
+  'custom',
+  'fallback',
+]);
 
 /** Tarih verilmediğinde kullanılan varsayılan etiket. */
 export const DEFAULT_DATE_LABEL = 'Belirtilmedi';
@@ -80,4 +88,76 @@ export function createTokenRecord({
   };
 
   return Object.freeze(record);
+}
+
+/**
+ * Fiyat değerini ondalık sayıya çevirir ve doğrular.
+ * String fiyatlar (API'den gelen "0.14" gibi) parseFloat ile dönüştürülür.
+ * @param {unknown} value
+ * @param {string} fieldName
+ * @returns {number}
+ */
+function parsePrice(value, fieldName) {
+  let numeric = value;
+  if (typeof numeric === 'string') {
+    numeric = parseFloat(numeric);
+  }
+  if (typeof numeric !== 'number' || !Number.isFinite(numeric) || numeric < 0) {
+    throw new RangeError('ERR_NEGATIVE_OR_INVALID_NUMBER');
+  }
+  return numeric;
+}
+
+/**
+ * Faz 2: 1 Milyon ($10^6$) token başına USD cinsinden bir fiyat profili üretir.
+ * @param {object} params
+ * @param {string} params.modelId
+ * @param {string} [params.displayName]
+ * @param {number|string} [params.cachedInputCostPerMillion]
+ * @param {number|string} params.uncachedInputCostPerMillion
+ * @param {number|string} params.outputCostPerMillion
+ * @param {'litellm'|'openrouter'|'custom'|'fallback'} params.source
+ * @returns {Readonly<object>}
+ */
+export function createPricingProfile({
+  modelId,
+  displayName,
+  cachedInputCostPerMillion,
+  uncachedInputCostPerMillion,
+  outputCostPerMillion,
+  source,
+} = {}) {
+  if (typeof modelId !== 'string' || modelId.trim() === '') {
+    throw new TypeError('ERR_INVALID_MODEL_ID');
+  }
+  if (!VALID_PRICING_SOURCES.includes(source)) {
+    throw new Error('ERR_INVALID_PRICING_SOURCE');
+  }
+
+  const uncached = parsePrice(uncachedInputCostPerMillion, 'uncachedInputCostPerMillion');
+  const output = parsePrice(outputCostPerMillion, 'outputCostPerMillion');
+
+  let cached;
+  let isCacheEstimated = false;
+  if (cachedInputCostPerMillion === undefined || cachedInputCostPerMillion === null) {
+    // Önbellek fiyatı yoksa girdi fiyatının %50'si varsayılır.
+    cached = Number((uncached * 0.5).toFixed(6));
+    isCacheEstimated = true;
+  } else {
+    cached = parsePrice(cachedInputCostPerMillion, 'cachedInputCostPerMillion');
+  }
+
+  const profile = {
+    modelId: modelId.trim(),
+    displayName: typeof displayName === 'string' && displayName.trim() !== ''
+      ? displayName.trim()
+      : modelId.trim(),
+    cachedInputCostPerMillion: cached,
+    uncachedInputCostPerMillion: uncached,
+    outputCostPerMillion: output,
+    source,
+    isCacheEstimated,
+  };
+
+  return Object.freeze(profile);
 }

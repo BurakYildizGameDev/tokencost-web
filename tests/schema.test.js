@@ -1,7 +1,12 @@
 // tests/schema.test.js
-// Faz 1: Token kaydı şeması testleri.
+// Faz 1 - 2: Token kaydı ve fiyat profili şeması testleri.
 import { describe, it, expect } from 'vitest';
-import { createTokenRecord, DEFAULT_DATE_LABEL } from '../src/core/schema.js';
+import {
+  createTokenRecord,
+  createPricingProfile,
+  VALID_PRICING_SOURCES,
+  DEFAULT_DATE_LABEL,
+} from '../src/core/schema.js';
 
 describe('Faz 1: createTokenRecord', () => {
   it('geçerli parametrelerle dondurulmuş (frozen) standart bir nesne döndürür', () => {
@@ -55,5 +60,78 @@ describe('Faz 1: createTokenRecord', () => {
     expect(record.totalTokens).toBe(0);
     expect(record.cachedTokens).toBe(0);
     expect(record.billedTokens).toBe(0);
+  });
+});
+
+describe('Faz 2: createPricingProfile', () => {
+  it('1 milyon token başına USD maliyetleri doğru saklar', () => {
+    const profile = createPricingProfile({
+      modelId: 'deepseek-chat',
+      displayName: 'DeepSeek Chat',
+      cachedInputCostPerMillion: 0.014,
+      uncachedInputCostPerMillion: 0.14,
+      outputCostPerMillion: 0.28,
+      source: 'litellm',
+    });
+
+    expect(profile.cachedInputCostPerMillion).toBe(0.014);
+    expect(profile.uncachedInputCostPerMillion).toBe(0.14);
+    expect(profile.outputCostPerMillion).toBe(0.28);
+    expect(profile.source).toBe('litellm');
+    expect(profile.isCacheEstimated).toBe(false);
+    expect(Object.isFrozen(profile)).toBe(true);
+  });
+
+  it('VALID_PRICING_SOURCES yalnızca izin verilen 4 değeri içerir', () => {
+    expect(VALID_PRICING_SOURCES).toEqual(['litellm', 'openrouter', 'custom', 'fallback']);
+  });
+
+  it('geçersiz source değerinde ERR_INVALID_PRICING_SOURCE fırlatır', () => {
+    expect(() => createPricingProfile({
+      modelId: 'm',
+      uncachedInputCostPerMillion: 0.14,
+      outputCostPerMillion: 0.28,
+      source: 'bogus',
+    })).toThrowError('ERR_INVALID_PRICING_SOURCE');
+  });
+
+  it('cachedInputCostPerMillion yoksa %50 varsayar ve isCacheEstimated:true ekler', () => {
+    const profile = createPricingProfile({
+      modelId: 'm',
+      uncachedInputCostPerMillion: 0.14,
+      outputCostPerMillion: 0.28,
+      source: 'fallback',
+    });
+    expect(profile.cachedInputCostPerMillion).toBe(0.07);
+    expect(profile.isCacheEstimated).toBe(true);
+
+    const profileNull = createPricingProfile({
+      modelId: 'm2',
+      cachedInputCostPerMillion: null,
+      uncachedInputCostPerMillion: 0.2,
+      outputCostPerMillion: 0.4,
+      source: 'custom',
+    });
+    expect(profileNull.cachedInputCostPerMillion).toBe(0.1);
+    expect(profileNull.isCacheEstimated).toBe(true);
+  });
+
+  it('string fiyatları parseFloat ile kabul eder, negatifleri reddeder', () => {
+    const profile = createPricingProfile({
+      modelId: 'm',
+      cachedInputCostPerMillion: '0.014',
+      uncachedInputCostPerMillion: '0.14',
+      outputCostPerMillion: '0.28',
+      source: 'openrouter',
+    });
+    expect(profile.uncachedInputCostPerMillion).toBe(0.14);
+    expect(profile.outputCostPerMillion).toBe(0.28);
+
+    expect(() => createPricingProfile({
+      modelId: 'm',
+      uncachedInputCostPerMillion: -1,
+      outputCostPerMillion: 0.28,
+      source: 'litellm',
+    })).toThrow(RangeError);
   });
 });
