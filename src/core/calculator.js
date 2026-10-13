@@ -38,3 +38,38 @@ export function calculateCacheHitRatio(cachedTokens, totalTokens) {
   const ratio = (cached / total) * 100;
   return Math.min(100, roundTo(ratio, 2));
 }
+
+/**
+ * Faz 4: Token tutarlılığını doğrular ve metadata üretir (asla throw etmez).
+ * @param {object} record
+ * @returns {{ isExactMatch: boolean, discrepancy: number, effectiveBilledTokens: number, warningCode: string|null }}
+ */
+export function validateTokenConsistency(record = {}) {
+  const total = Number(record.totalTokens) || 0;
+  const cached = Number(record.cachedTokens) || 0;
+  const rawBilled = record.billedTokens;
+  const billedMissing =
+    rawBilled === undefined || rawBilled === null || Number(rawBilled) === 0;
+  const billed = Number(rawBilled) || 0;
+
+  let effectiveBilledTokens;
+  let warningCode = null;
+
+  if (billedMissing && total > cached) {
+    // Kotaya yansıyan değer verilmemiş: total - cached ile türet.
+    effectiveBilledTokens = total - cached;
+    warningCode = 'BILLED_TOKENS_DERIVED';
+  } else {
+    effectiveBilledTokens = billed;
+  }
+
+  const discrepancy = cached + billed - total;
+  const isExactMatch = discrepancy === 0;
+
+  if (!isExactMatch && warningCode === null) {
+    // Girdi/çıktı ağırlıklı (weighted) kota farklılığı.
+    warningCode = 'QUOTA_WEIGHTED_TOKENS';
+  }
+
+  return { isExactMatch, discrepancy, effectiveBilledTokens, warningCode };
+}
