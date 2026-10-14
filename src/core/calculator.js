@@ -73,3 +73,35 @@ export function validateTokenConsistency(record = {}) {
 
   return { isExactMatch, discrepancy, effectiveBilledTokens, warningCode };
 }
+
+/**
+ * Faz 5: Tek satırlık maliyeti hesaplar.
+ * P_blended = alpha * P_in + (1 - alpha) * P_out
+ * C_row = (cached/1e6 * P_cache) + (billed/1e6 * P_blended)
+ * @param {object} record
+ * @param {object} pricingProfile
+ * @param {number} [inputOutputSplitRatio=0.3]
+ * @returns {{ cachedCostUSD: number, billedCostUSD: number, totalCostUSD: number, blendedInputOutputCostPerMillion: number }}
+ */
+export function calculateSingleRowCost(record = {}, pricingProfile = {}, inputOutputSplitRatio = 0.3) {
+  const cachedTokens = Number(record.cachedTokens) || 0;
+  const billedTokens = Number(record.billedTokens) || 0;
+
+  const pCache = Number(pricingProfile.cachedInputCostPerMillion) || 0;
+  const pIn = Number(pricingProfile.uncachedInputCostPerMillion) || 0;
+  const pOut = Number(pricingProfile.outputCostPerMillion) || 0;
+
+  const alpha = clamp(inputOutputSplitRatio, 0, 1);
+  const blended = alpha * pIn + (1 - alpha) * pOut;
+
+  const cachedCostUSD = round6((cachedTokens / 1e6) * pCache);
+  const billedCostUSD = round6((billedTokens / 1e6) * blended);
+  const totalCostUSD = round6(cachedCostUSD + billedCostUSD);
+
+  return {
+    cachedCostUSD,
+    billedCostUSD,
+    totalCostUSD,
+    blendedInputOutputCostPerMillion: round6(blended),
+  };
+}

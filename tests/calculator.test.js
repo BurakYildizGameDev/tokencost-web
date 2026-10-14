@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateCacheHitRatio,
   validateTokenConsistency,
+  calculateSingleRowCost,
 } from '../src/core/calculator.js';
 
 describe('Faz 3: calculateCacheHitRatio', () => {
@@ -54,5 +55,42 @@ describe('Faz 4: validateTokenConsistency', () => {
     expect(result.isExactMatch).toBe(true);
     expect(result.discrepancy).toBe(0);
     expect(result.warningCode).toBe(null);
+  });
+});
+
+describe('Faz 5: calculateSingleRowCost', () => {
+  const pricing = {
+    cachedInputCostPerMillion: 0.014,
+    uncachedInputCostPerMillion: 0.14,
+    outputCostPerMillion: 0.28,
+  };
+
+  it('önbellek ve karma net maliyeti doğru hesaplar (alpha=0.3)', () => {
+    const result = calculateSingleRowCost({ cachedTokens: 281215362, billedTokens: 22858077 }, pricing);
+    expect(result.cachedCostUSD).toBe(3.937015);
+    expect(result.billedCostUSD).toBe(5.440222);
+    expect(result.totalCostUSD).toBe(9.377237);
+    expect(result.blendedInputOutputCostPerMillion).toBe(0.238);
+  });
+
+  it('tüm tokenlar 0 ise tüm maliyet alanları 0 döner', () => {
+    const result = calculateSingleRowCost({ cachedTokens: 0, billedTokens: 0 }, pricing);
+    expect(result.cachedCostUSD).toBe(0);
+    expect(result.billedCostUSD).toBe(0);
+    expect(result.totalCostUSD).toBe(0);
+  });
+
+  it('inputOutputSplitRatio karma fiyatı değiştirir', () => {
+    const allOutput = calculateSingleRowCost({ cachedTokens: 0, billedTokens: 1e6 }, pricing, 0);
+    expect(allOutput.billedCostUSD).toBe(0.28);
+    const allInput = calculateSingleRowCost({ cachedTokens: 0, billedTokens: 1e6 }, pricing, 1);
+    expect(allInput.billedCostUSD).toBe(0.14);
+  });
+
+  it('girdi nesnesini mutate etmez (saf fonksiyon)', () => {
+    const record = { cachedTokens: 100, billedTokens: 200 };
+    const snapshot = { ...record };
+    calculateSingleRowCost(record, pricing);
+    expect(record).toEqual(snapshot);
   });
 });
