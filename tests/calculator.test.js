@@ -5,6 +5,7 @@ import {
   calculateCacheHitRatio,
   validateTokenConsistency,
   calculateSingleRowCost,
+  calculateCacheSavings,
 } from '../src/core/calculator.js';
 
 describe('Faz 3: calculateCacheHitRatio', () => {
@@ -92,5 +93,26 @@ describe('Faz 5: calculateSingleRowCost', () => {
     const snapshot = { ...record };
     calculateSingleRowCost(record, pricing);
     expect(record).toEqual(snapshot);
+  });
+});
+
+describe('Faz 6: calculateCacheSavings', () => {
+  it('tasarrufu ve yüzdeyi doğru hesaplar', () => {
+    const result = calculateCacheSavings(314601056, 0.14, 0.014);
+    expect(result.uncachedCostUSD).toBe(44.044148);
+    expect(result.cachedCostUSD).toBe(4.404415);
+    expect(result.savedUSD).toBe(39.639733);
+    expect(result.savingsPercentage).toBe(90);
+  });
+
+  it('önbellek indirimi yoksa tasarruf 0 ve yüzde 0 olur', () => {
+    const result = calculateCacheSavings(1000000, 0.14, 0.14);
+    expect(result.savedUSD).toBe(0);
+    expect(result.savingsPercentage).toBe(0);
+  });
+
+  it('cached fiyat uncached fiyattan büyükse negatifi 0 ile sınırlar', () => {
+    const result = calculateCacheSavings(1000000, 0.1, 0.2);
+    expect(result.savedUSD).toBe(0);
   });
 });

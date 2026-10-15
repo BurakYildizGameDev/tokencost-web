@@ -105,3 +105,26 @@ export function calculateSingleRowCost(record = {}, pricingProfile = {}, inputOu
     blendedInputOutputCostPerMillion: round6(blended),
   };
 }
+
+/**
+ * Faz 6: Önbellek tasarrufunu (ROI) hesaplar.
+ * SavedUSD = max(0, cached/1e6 * (P_in - P_cache))
+ * @param {number} cachedTokens
+ * @param {number} uncachedInputCostPerMillion
+ * @param {number} cachedInputCostPerMillion
+ * @returns {{ uncachedCostUSD: number, cachedCostUSD: number, savedUSD: number, savingsPercentage: number }}
+ */
+export function calculateCacheSavings(cachedTokens, uncachedInputCostPerMillion, cachedInputCostPerMillion) {
+  const cached = Number(cachedTokens) || 0;
+  const pIn = Number(uncachedInputCostPerMillion) || 0;
+  const pCache = Number(cachedInputCostPerMillion) || 0;
+
+  const uncachedCostUSD = round6((cached / 1e6) * pIn);
+  const cachedCostUSD = round6((cached / 1e6) * pCache);
+  const savedUSD = round6(Math.max(0, uncachedCostUSD - cachedCostUSD));
+  const savingsPercentage = pIn > 0
+    ? round2(Math.max(0, ((pIn - pCache) / pIn) * 100))
+    : 0;
+
+  return { uncachedCostUSD, cachedCostUSD, savedUSD, savingsPercentage };
+}
