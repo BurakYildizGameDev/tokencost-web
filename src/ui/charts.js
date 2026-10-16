@@ -1,7 +1,10 @@
 // src/ui/charts.js
 // Faz 36: Sıfır bağımlılıklı saf SVG halka (donut) grafik üretici.
+// Faz 48: Aynı dosyaya model başına yatay çubuk (bar) grafik üreticisi eklendi.
 // KURAL: Chart.js / D3.js / canvas KULLANILMAZ. DOM'a dokunmaz; string döner
 //        (çağıran katman innerHTML veya insertAdjacentHTML ile yerleştirir).
+
+import { formatCostDisplay } from '../core/formatter.js';
 
 /** SVG tuval boyutu (viewBox birimi). */
 export const DONUT_VIEWBOX_SIZE = 200;
@@ -129,6 +132,196 @@ export function generateModelCostDonutSVG(groupedModels, options = {}) {
     );
 
     consumed += ratio * circumference;
+  });
+
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+/* ------------------------------------------------------------------ *
+ * Faz 48: Yatay çubuk grafik (model başına maliyet karşılaştırması)
+ * ------------------------------------------------------------------ */
+
+/** Çubuk grafiğin iç (viewBox) genişliği. */
+export const BARS_VIEWBOX_WIDTH = 720;
+
+/** Satır yüksekliği (viewBox birimi). */
+export const BARS_ROW_HEIGHT = 30;
+
+/** Üst/alt iç boşluk. */
+export const BARS_PADDING = 6;
+
+/** Model adı sütununun genişliği. */
+export const BARS_LABEL_WIDTH = 200;
+
+/** Sağdaki sayı sütununun genişliği (fatura + tasarruf %). */
+export const BARS_VALUE_WIDTH = 132;
+
+/** Çubuk kalınlığı. */
+export const BARS_BAR_HEIGHT = 12;
+
+/** Önlenen maliyet (önbellek tasarrufu) parçasının saydamlığı. */
+export const BARS_SAVED_OPACITY = 0.3;
+
+/** Model adı bu uzunluktan sonra kısaltılır. */
+export const BARS_LABEL_MAX_LENGTH = 26;
+
+/** Maliyet verisi yokken gösterilen metin. */
+export const BARS_EMPTY_TEXT = 'Gösterilecek maliyet verisi yok';
+
+/** Model adını tek satıra sığdırır (uzun adlar "…" ile kısaltılır). */
+function truncateModel(model, maxLength = BARS_LABEL_MAX_LENGTH) {
+  const text = String(model);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(1, maxLength - 1))}…`;
+}
+
+/** Yüzdeyi "%73" biçiminde yazar (kayan nokta gürültüsü olmadan). */
+function formatPercent(value) {
+  return `%${round2(value)}`;
+}
+
+/**
+ * Gruplanmış modelleri çubuk satırlarına indirger ve çubuk uzunluğuna göre sıralar.
+ * withoutCache = gerçek fatura + önbellek tasarrufu (önbellek olmasaydı ödenecek tutar).
+ * @param {Array<{ model: string, summary: object }>} groupedModels
+ * @returns {Array<{ model: string, invoice: number, saved: number, withoutCache: number, savingsRate: number }>}
+ */
+function toBarRows(groupedModels) {
+  const list = Array.isArray(groupedModels) ? groupedModels : [];
+  const rows = [];
+
+  for (const group of list) {
+    if (!group || typeof group !== 'object') continue;
+
+    const summary = group.summary && typeof group.summary === 'object' ? group.summary : {};
+    const invoice = Number(summary.totalCostUSD);
+    const saved = Number(summary.totalSavedUSD);
+    const safeInvoice = Number.isFinite(invoice) && invoice > 0 ? invoice : 0;
+    const safeSaved = Number.isFinite(saved) && saved > 0 ? saved : 0;
+    const withoutCache = round2(safeInvoice + safeSaved);
+    if (withoutCache <= 0) continue;
+
+    rows.push({
+      model: typeof group.model === 'string' && group.model.trim() !== ''
+        ? group.model.trim()
+        : 'Bilinmeyen Model',
+      invoice: safeInvoice,
+      saved: safeSaved,
+      withoutCache,
+      savingsRate: round2((safeSaved / withoutCache) * 100),
+    });
+  }
+
+  // Büyük çubuk üstte; eşitlikte model adına göre sıralanır (deterministik çıktı).
+  rows.sort((a, b) => {
+    if (b.withoutCache !== a.withoutCache) return b.withoutCache - a.withoutCache;
+    if (a.model === b.model) return 0;
+    return a.model < b.model ? -1 : 1;
+  });
+
+  return rows;
+}
+
+/**
+ * Halka grafikteki renk sırasını çubuklara taşır: aynı model her iki grafikte aynı renktir.
+ * @param {Array<{ model: string, summary: object }>} groupedModels
+ * @returns {Map<string, number>}
+ */
+function buildColorIndex(groupedModels) {
+  const index = new Map();
+  toSegments(groupedModels).forEach((segment, position) => {
+    if (!index.has(segment.model)) index.set(segment.model, position);
+  });
+  return index;
+}
+
+/** Çubuk grafiğin toplam yüksekliği (satır sayısına göre). */
+function heightOfBars(rowCount, rowHeight) {
+  const rows = Number(rowCount) > 0 ? Number(rowCount) : 1;
+  return round2(rows * rowHeight + BARS_PADDING * 2);
+}
+
+/**
+ * Faz 48: Model başına maliyeti yatay çubuklarla gösterir (saf SVG, harici kütüphane YOK).
+ * Tüm çubuklar "önbellek olmasaydı" tutarına göre ölçeklenir; dolu parça gerçek fatura,
+ * soluk parça önbellek sayesinde ödenmeyen tutardır. Veri yoksa nötr metin döner.
+ * @param {Array<{ model: string, summary: object }>} groupedModels
+ * @param {{ ariaLabel?: string, width?: number, rowHeight?: number }} [options]
+ * @returns {string} SVG işaretlemesi
+ */
+export function generateModelCostBarsSVG(groupedModels, options = {}) {
+  const width = Number(options.width) > 0 ? Number(options.width) : BARS_VIEWBOX_WIDTH;
+  const rowHeight = Number(options.rowHeight) > 0 ? Number(options.rowHeight) : BARS_ROW_HEIGHT;
+  const ariaLabel = options.ariaLabel || 'Model başına maliyet karşılaştırması';
+  const rows = toBarRows(groupedModels);
+  const trackWidth = Math.max(1, width - BARS_LABEL_WIDTH - BARS_VALUE_WIDTH);
+  const height = heightOfBars(rows.length, rowHeight);
+
+  const header = `<svg class="bar-chart" viewBox="0 0 ${width} ${height}"`
+    + ` role="img" aria-label="${escapeXml(ariaLabel)}" xmlns="http://www.w3.org/2000/svg">`;
+
+  if (rows.length === 0) {
+    return header
+      + `<title>${escapeXml(BARS_EMPTY_TEXT)}</title>`
+      + `<text class="bar-empty" x="0" y="${round2(rowHeight / 2 + 4)}">${escapeXml(BARS_EMPTY_TEXT)}</text>`
+      + '</svg>';
+  }
+
+  const colors = buildColorIndex(groupedModels);
+  const maxWithoutCache = rows.reduce((max, row) => Math.max(max, row.withoutCache), 0);
+  const invoiceTextX = width - 58;
+  const savingsTextX = width - 4;
+
+  const parts = [
+    header,
+    `<title>${escapeXml(`${ariaLabel} (${rows.length} model, USD)`)}</title>`,
+  ];
+
+  rows.forEach((row, index) => {
+    const rowY = BARS_PADDING + index * rowHeight;
+    const barY = rowY + (rowHeight - BARS_BAR_HEIGHT) / 2;
+    const textY = rowY + rowHeight - 10;
+    const color = colorAt(colors.has(row.model) ? colors.get(row.model) : index);
+
+    const barWidth = round2((row.withoutCache / maxWithoutCache) * trackWidth);
+    const invoiceWidth = Math.max(row.invoice > 0 ? 2 : 0, round2((row.invoice / row.withoutCache) * barWidth));
+    const savedWidth = Math.max(0, round2(barWidth - invoiceWidth));
+    const tooltip = `${row.model}: fatura ${round2(row.invoice)} USD`
+      + ` · önbelleksiz ${row.withoutCache} USD · tasarruf ${formatPercent(row.savingsRate)}`;
+
+    parts.push(`<g class="bar-row" data-model="${escapeXml(row.model)}">`);
+    parts.push(`<title>${escapeXml(tooltip)}</title>`);
+    parts.push(
+      `<rect class="bar-track" x="${BARS_LABEL_WIDTH}" y="${round2(barY)}"`
+      + ` width="${trackWidth}" height="${BARS_BAR_HEIGHT}" rx="1" />`,
+    );
+
+    if (savedWidth > 0) {
+      parts.push(
+        `<rect class="bar-saved" x="${round2(BARS_LABEL_WIDTH + invoiceWidth)}" y="${round2(barY)}"`
+        + ` width="${savedWidth}" height="${BARS_BAR_HEIGHT}" fill="${color}"`
+        + ` fill-opacity="${BARS_SAVED_OPACITY}" rx="1" />`,
+      );
+    }
+
+    if (invoiceWidth > 0) {
+      parts.push(
+        `<rect class="bar-actual" x="${BARS_LABEL_WIDTH}" y="${round2(barY)}"`
+        + ` width="${invoiceWidth}" height="${BARS_BAR_HEIGHT}" fill="${color}" rx="1" />`,
+      );
+    }
+
+    parts.push(`<text class="bar-label" x="0" y="${round2(textY)}">${escapeXml(truncateModel(row.model))}</text>`);
+    parts.push(
+      `<text class="bar-value" x="${invoiceTextX}" y="${round2(textY)}" text-anchor="end">`
+      + `${escapeXml(formatCostDisplay(row.invoice))}</text>`,
+    );
+    parts.push(
+      `<text class="bar-meta" x="${savingsTextX}" y="${round2(textY)}" text-anchor="end">`
+      + `${escapeXml(row.savingsRate > 0 ? `-${formatPercent(row.savingsRate)}` : '')}</text>`,
+    );
+    parts.push('</g>');
   });
 
   parts.push('</svg>');
