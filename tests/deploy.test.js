@@ -34,16 +34,16 @@ describe('Faz 47: CI/CD, GitHub Pages ve yazdırma (print) sözleşmesi', () => 
     const workflow = readArtifact(WORKFLOW_PATH);
 
     expect(workflow).toMatch(/branches:\s*\[\s*main\s*\]/);
-    expect(workflow).toMatch(/actions\/checkout@v4/);
-    expect(workflow).toMatch(/actions\/setup-node@v4/);
+    expect(workflow).toMatch(/actions\/checkout@v7/);
+    expect(workflow).toMatch(/actions\/setup-node@v7/);
     expect(workflow).toMatch(/npm ci/);
     expect(workflow).toMatch(/npm test/);
 
     // Dağıtım adımları test işine bağlıdır: kırmızı test = yayın yok.
     expect(workflow).toMatch(/needs:\s*test/);
     expect(workflow).toMatch(/needs:\s*build/);
-    expect(workflow).toMatch(/actions\/upload-pages-artifact@v3/);
-    expect(workflow).toMatch(/actions\/deploy-pages@v4/);
+    expect(workflow).toMatch(/actions\/upload-pages-artifact@v5/);
+    expect(workflow).toMatch(/actions\/deploy-pages@v5/);
 
     // Pages izinleri ve eşzamanlılık kilidi
     expect(workflow).toMatch(/pages:\s*write/);

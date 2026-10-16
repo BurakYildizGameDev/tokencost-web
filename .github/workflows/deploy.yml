@@ -21,15 +21,15 @@ concurrency:
 jobs:
   test:
     name: Vitest (47 faz sözleşmesi)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Node.js 20 kur
-        uses: actions/setup-node@v4
+      - name: Node.js 24 kur
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Bağımlılıkları kur
@@ -42,13 +42,13 @@ jobs:
     name: Pages paketi hazırla
     needs: test
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Depoyu al
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Pages ayarlarını hazırla
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Yayın paketini hazırla (yalnızca statik dosyalar)
         run: |
@@ -65,18 +65,18 @@ jobs:
           test -f dist/src/main.js
 
       - name: Statik siteyi yükle
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./dist
 
   deploy:
     name: GitHub Pages'e yayınla
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Yayınla
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
