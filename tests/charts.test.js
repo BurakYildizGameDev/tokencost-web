@@ -1,6 +1,7 @@
 // tests/charts.test.js
 // Faz 36: Saf SVG halka (donut) grafik üretici testleri (Chart.js / D3.js YOK).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { setLanguage } from '../src/core/i18n.js';
 import {
   generateModelCostDonutSVG,
   generateModelCostBarsSVG,
@@ -253,5 +254,56 @@ describe('Faz 48: generateModelCostBarsSVG', () => {
     ]);
 
     expect(generateModelCostBarsSVG(groups)).toBe(generateModelCostBarsSVG(groups));
+  });
+});
+
+describe('Faz 49: grafik metinleri i18n sözlüğünden gelir', () => {
+  afterEach(() => {
+    // Sözlük modül durumu global: testler arası dil sızıntısını engelle.
+    setLanguage('tr');
+  });
+
+  it('Türkçe (varsayılan) dilde önceki metinleri birebir korur', () => {
+    const bars = generateModelCostBarsSVG(createSavingsGroups([['model-a', 10, 30]]));
+
+    expect(bars).toContain('aria-label="Model başına maliyet karşılaştırması"');
+    expect(bars).toContain('Model başına maliyet karşılaştırması (1 model, USD)');
+    expect(bars).toContain('model-a: fatura 10 USD · önbelleksiz 40 USD · tasarruf %75');
+    expect(generateModelCostBarsSVG([])).toContain(BARS_EMPTY_TEXT);
+    expect(generateModelCostDonutSVG([])).toContain(BARS_EMPTY_TEXT);
+    expect(generateModelCostDonutSVG(createGroups([['model-a', 10]])))
+      .toContain('aria-label="Model bazlı maliyet dağılımı"');
+  });
+
+  it('dil değişince aria etiketi, başlık, tooltip ve boş durum metni çevrilir', () => {
+    expect(setLanguage('en')).toBe('en');
+
+    const bars = generateModelCostBarsSVG(createSavingsGroups([['model-a', 10, 30]]));
+
+    expect(bars).toContain('aria-label="Cost comparison per model"');
+    expect(bars).toContain('Cost comparison per model (1 model, USD)');
+    expect(bars).toContain('model-a: invoice 10 USD · without cache 40 USD · savings %75');
+    expect(generateModelCostBarsSVG([])).toContain('No cost data to display');
+    expect(generateModelCostDonutSVG([])).toContain('No cost data to display');
+    expect(generateModelCostDonutSVG(createGroups([['model-a', 10]])))
+      .toContain('aria-label="Cost breakdown by model"');
+  });
+
+  it('çok satırlı grafikte çoğul başlık biçimini kullanır (dile göre)', () => {
+    const groups = createSavingsGroups([['model-a', 10, 30], ['model-b', 5, 5]]);
+
+    expect(generateModelCostBarsSVG(groups)).toContain('(2 model, USD)');
+
+    setLanguage('de');
+    expect(generateModelCostBarsSVG(groups)).toContain('(2 Modelle, USD)');
+  });
+
+  it('explicit ariaLabel seçeneği sözlük değerini geçersiz kılar', () => {
+    setLanguage('en');
+
+    expect(generateModelCostBarsSVG(createSavingsGroups([['model-a', 1, 0]]), { ariaLabel: 'Ozel Etiket' }))
+      .toContain('aria-label="Ozel Etiket"');
+    expect(generateModelCostDonutSVG(createGroups([['model-a', 1]]), { ariaLabel: 'Ozel Etiket' }))
+      .toContain('aria-label="Ozel Etiket"');
   });
 });

@@ -5,6 +5,7 @@
 //        (çağıran katman innerHTML veya insertAdjacentHTML ile yerleştirir).
 
 import { formatCostDisplay } from '../core/formatter.js';
+import { t } from '../core/i18n.js';
 
 /** SVG tuval boyutu (viewBox birimi). */
 export const DONUT_VIEWBOX_SIZE = 200;
@@ -94,14 +95,14 @@ export function generateModelCostDonutSVG(groupedModels, options = {}) {
   const segments = toSegments(groupedModels);
   const total = segments.reduce((sum, segment) => sum + segment.cost, 0);
 
-  const ariaLabel = options.ariaLabel || 'Model bazlı maliyet dağılımı';
+  const ariaLabel = options.ariaLabel || t('chart.donut.aria');
   const parts = [
     `<svg class="donut-chart" viewBox="0 0 ${size} ${size}" role="img"`
     + ` aria-label="${escapeXml(ariaLabel)}" xmlns="http://www.w3.org/2000/svg">`,
   ];
 
   if (!Number.isFinite(total) || total <= 0) {
-    parts.push(`<title>${escapeXml('Gösterilecek maliyet verisi yok')}</title>`);
+    parts.push(`<title>${escapeXml(t('chart.empty'))}</title>`);
     parts.push(
       `<circle class="donut-track" cx="${center}" cy="${center}" r="${radius}" fill="none"`
       + ` stroke="${DONUT_EMPTY_COLOR}" stroke-width="${strokeWidth}"`
@@ -166,7 +167,10 @@ export const BARS_SAVED_OPACITY = 0.3;
 /** Model adı bu uzunluktan sonra kısaltılır. */
 export const BARS_LABEL_MAX_LENGTH = 26;
 
-/** Maliyet verisi yokken gösterilen metin. */
+/**
+ * Maliyet verisi yokken gösterilen Türkçe yedek metin.
+ * Çıktıda sözlük değeri (`chart.empty`) kullanılır; bu sabit geriye dönük uyumluluk için korunur.
+ */
 export const BARS_EMPTY_TEXT = 'Gösterilecek maliyet verisi yok';
 
 /** Model adını tek satıra sığdırır (uzun adlar "…" ile kısaltılır). */
@@ -253,7 +257,7 @@ function heightOfBars(rowCount, rowHeight) {
 export function generateModelCostBarsSVG(groupedModels, options = {}) {
   const width = Number(options.width) > 0 ? Number(options.width) : BARS_VIEWBOX_WIDTH;
   const rowHeight = Number(options.rowHeight) > 0 ? Number(options.rowHeight) : BARS_ROW_HEIGHT;
-  const ariaLabel = options.ariaLabel || 'Model başına maliyet karşılaştırması';
+  const ariaLabel = options.ariaLabel || t('chart.bars.aria');
   const rows = toBarRows(groupedModels);
   const trackWidth = Math.max(1, width - BARS_LABEL_WIDTH - BARS_VALUE_WIDTH);
   const height = heightOfBars(rows.length, rowHeight);
@@ -262,9 +266,10 @@ export function generateModelCostBarsSVG(groupedModels, options = {}) {
     + ` role="img" aria-label="${escapeXml(ariaLabel)}" xmlns="http://www.w3.org/2000/svg">`;
 
   if (rows.length === 0) {
+    const emptyText = t('chart.empty');
     return header
-      + `<title>${escapeXml(BARS_EMPTY_TEXT)}</title>`
-      + `<text class="bar-empty" x="0" y="${round2(rowHeight / 2 + 4)}">${escapeXml(BARS_EMPTY_TEXT)}</text>`
+      + `<title>${escapeXml(emptyText)}</title>`
+      + `<text class="bar-empty" x="0" y="${round2(rowHeight / 2 + 4)}">${escapeXml(emptyText)}</text>`
       + '</svg>';
   }
 
@@ -273,9 +278,10 @@ export function generateModelCostBarsSVG(groupedModels, options = {}) {
   const invoiceTextX = width - 58;
   const savingsTextX = width - 4;
 
+  const titleKey = rows.length === 1 ? 'chart.bars.titleOne' : 'chart.bars.title';
   const parts = [
     header,
-    `<title>${escapeXml(`${ariaLabel} (${rows.length} model, USD)`)}</title>`,
+    `<title>${escapeXml(t(titleKey, { aria: ariaLabel, count: rows.length, cur: 'USD' }))}</title>`,
   ];
 
   rows.forEach((row, index) => {
@@ -287,8 +293,13 @@ export function generateModelCostBarsSVG(groupedModels, options = {}) {
     const barWidth = round2((row.withoutCache / maxWithoutCache) * trackWidth);
     const invoiceWidth = Math.max(row.invoice > 0 ? 2 : 0, round2((row.invoice / row.withoutCache) * barWidth));
     const savedWidth = Math.max(0, round2(barWidth - invoiceWidth));
-    const tooltip = `${row.model}: fatura ${round2(row.invoice)} USD`
-      + ` · önbelleksiz ${row.withoutCache} USD · tasarruf ${formatPercent(row.savingsRate)}`;
+    const tooltip = t('chart.tooltip', {
+      model: row.model,
+      invoice: round2(row.invoice),
+      withoutCache: row.withoutCache,
+      cur: 'USD',
+      savings: formatPercent(row.savingsRate),
+    });
 
     parts.push(`<g class="bar-row" data-model="${escapeXml(row.model)}">`);
     parts.push(`<title>${escapeXml(tooltip)}</title>`);
