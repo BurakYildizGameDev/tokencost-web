@@ -101,10 +101,14 @@ cd tokencost-finops
 npm ci
 npm test
 
-# 3) Tarayıcıda açın
-npx serve .        # veya: python -m http.server 8080
-# http://localhost:3000
+# 3) Geliştirme sunucusunu başlatın (sıfır bağımlılık, Node 18+)
+npm start          # http://localhost:5173
 ```
+
+`npm start`, `scripts/serve.mjs` içindeki bağımlılıksız statik sunucuyu çalıştırır (yalnızca Node
+`node:` modülleri; çalışma zamanı paketi yok). Port doluysa sırayla sonraki boş port denenir ve
+adres konsola yazılır; `PORT=8080 npm start` ile port seçilebilir. Alternatif olarak
+`python -m http.server 8080` veya herhangi bir statik sunucu da kullanılabilir.
 
 OCR (ekran görüntüsü) özelliği Tesseract.js CDN'inden gelir; erişim yoksa metin/CSV akışı sorunsuz çalışır
 (görsel yüklendiğinde kibar bir uyarı gösterilir).
@@ -129,7 +133,9 @@ src/
   ocr/                # OCR hattı (Tesseract enjekte edilir, saf mantık test edilebilir)
   services/           # fiyat, kur, dışa aktarım (CSV/PDF/Markdown/hash) servisleri
   ui/                 # store (pub/sub), bileşenler, grafikler, girdi olayları
-tests/                # Vitest: 16 dosya, 336 test (unit + entegrasyon + E2E)
+scripts/
+  serve.mjs           # ARAÇ: npm start — bağımlılıksız statik geliştirme sunucusu
+tests/                # Vitest: 17 dosya, 348 test (unit + entegrasyon + E2E)
 ```
 
 **Katman kuralı:** `src/core` ve `src/ocr` içinde DOM'a dokunulmaz; DOM yalnızca enjekte edilen
@@ -141,6 +147,7 @@ DOM olmadan test edilebilir.
 ```bash
 npm test           # tek seferlik (CI ile aynı komut)
 npm run test:watch # geliştirme sırasında izleme
+npm start          # statik geliştirme sunucusu (http://localhost:5173)
 ```
 
 Her faz TDD ile ilerledi (önce kırmızı test, sonra uygulama). E2E testleri ham metinden **$13.80**
@@ -148,6 +155,9 @@ faturaya, `.csv`/`.pdf` çıktısındaki imzaya ve 3 parçalı OCR akışının 
 tüm zinciri doğrular. Faz 49 kapsamı ayrıca şunları test eder: diller arası anahtar eşitliği (`i18n.test.js`),
 magic-byte tabanlı dosya tanıma (`file-type.test.js`), dil değişiminin tablo/kart/depo ile birlikte
 uygulanması ve anlık fiyat düğmesinin başarı/başarısızlık yolları (`e2e.test.js`).
+`serve.test.js` ise `npm start` sözleşmesini gerçek HTTP üzerinden doğrular: kök isteğinde
+`index.html`, modül MIME tipi (`text/javascript`), 404/405, gövdesiz `HEAD`, kapalı önbellek ve
+kök dizin dışına çıkan/bozuk kodlamalı yolların reddedilmesi.
 
 ## Bilinen Sınırlar
 

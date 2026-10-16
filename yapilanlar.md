@@ -584,6 +584,29 @@ Dört geri bildirim başlığının tamamı tek fazda kapatıldı.
   arası dil sızıntısı engellenir.
 - `npx vitest run` → **340 test / 16 dosya, tamamı yeşil** (336 + 4 yeni test).
 
+### 14.8 Araç: `npm start` — bağımlılıksız statik geliştirme sunucusu
+
+- **Bulunan boşluk:** `package.json` yalnızca `test`/`test:watch` betiklerini içeriyordu; `npm start`
+  yoktu. README ise `npx serve .` öneriyordu — bu komut ağdan geçici bir paket indirir ve projenin
+  "çalışma zamanında bağımlılık yok" ilkesiyle çelişir. Ayrıca sayfa `file://` üzerinden açıldığında
+  ES modülleri ve `fetch` engellendiği için uygulama hiç yüklenmiyordu.
+- **Çözüm:** `scripts/serve.mjs` eklendi; `package.json` → `"start": "node scripts/serve.mjs"`.
+  Sunucu yalnızca Node'un `node:` modüllerini kullanır: kök dizin sunumu (`/` → `index.html`),
+  doğru MIME tipleri (`.js`/`.mjs` → `text/javascript`), `no-store` başlığı, `GET`/`HEAD` dışına 405,
+  olmayan dosyaya 404, kök dizin dışına çıkan ya da bozuk yüzde kodlamalı yola 403. Port doluysa
+  sırayla sonraki boş port denenir (`PORT` ortam değişkeniyle port sabitlenebilir).
+  `createStaticServer()` ve `resolveRequestPath()` dışa açılır; betik yalnızca doğrudan
+  çalıştırıldığında dinlemeye başlar (import edildiğinde yan etki yok).
+- `tests/serve.test.js` (yeni, 8 test): gerçek HTTP üzerinden kök → `index.html` (`text/html`),
+  `/src/main.js` → `text/javascript`, `styles.css` → `text/css` + `cache-control: no-store`,
+  404/405, `HEAD` gövdesiz + `content-length`, bozuk kodlama → 403 ve "kök dışına çıkan yol ya
+  reddedilir ya da kök altında kalır" değişmez kontrolü.
+- `README.md`: Hızlı Başlangıç artık `npm start` (alternatifler korundu), Testler bölümüne ve mimari
+  ağacına `scripts/serve.mjs` eklendi; test sayacı 16 dosya/336 → **17 dosya/348**.
+- `npx vitest run` → **348 test / 17 dosya, tamamı yeşil** (340 + 8 yeni test).
+- Doğrulama: `npm start` arka planda çalıştırıldı; `http://localhost:5173/` → 200 (8285 bayt),
+  `/src/main.js` → 200 `text/javascript; charset=utf-8`; site tarayıcıda açıldı.
+
 _Doküman, depodaki gerçek dosya ve commit durumuna göre hazırlanmıştır; tüm sayı ve hash'ler `git log`,
 `npm test`, `python -c "yaml.safe_load(...)"` ve yerel Pages paketi simülasyonu çıktılarından doğrulanmıştır._
 
