@@ -5,6 +5,7 @@
 
 import { aggregateUsageSummaries } from '../core/calculator.js';
 import { formatCostDisplay, formatTokenCount } from '../core/formatter.js';
+import { t } from '../core/i18n.js';
 import { convertCurrency } from '../services/currency-service.js';
 import { SIGNATURE_TEXT } from '../services/export-service.js';
 
@@ -21,18 +22,28 @@ export const EDITABLE_FIELDS = Object.freeze([
 /** Sayısal (metin değil) düzenlenebilir alanlar. */
 export const NUMERIC_FIELDS = Object.freeze(['requests', 'totalTokens', 'cachedTokens', 'billedTokens']);
 
-/** Tablo sütun tanımları (sırayla). */
+/**
+ * Tablo sütun tanımları (sırayla).
+ * `labelKey` i18n anahtarıdır (dil değişince çizimde yeniden çözülür);
+ * `label` geriye dönük uyum için Türkçe metni taşır.
+ */
 export const USAGE_TABLE_COLUMNS = Object.freeze([
-  { field: 'date', label: 'Tarih' },
-  { field: 'model', label: 'Model' },
-  { field: 'requests', label: 'İstek' },
-  { field: 'totalTokens', label: 'Toplam Token' },
-  { field: 'cachedTokens', label: 'Önbelleklenen' },
-  { field: 'billedTokens', label: 'Faturalı' },
-  { field: 'cacheHitRatio', label: 'Önbellek %' },
-  { field: 'totalCostUSD', label: 'Tahmini Tutar' },
-  { field: 'actions', label: 'İşlem' },
+  { field: 'date', label: 'Tarih', labelKey: 'table.col.date' },
+  { field: 'model', label: 'Model', labelKey: 'table.col.model' },
+  { field: 'requests', label: 'İstek', labelKey: 'table.col.requests' },
+  { field: 'totalTokens', label: 'Toplam Token', labelKey: 'table.col.totalTokens' },
+  { field: 'cachedTokens', label: 'Önbelleklenen', labelKey: 'table.col.cachedTokens' },
+  { field: 'billedTokens', label: 'Faturalı', labelKey: 'table.col.billedTokens' },
+  { field: 'cacheHitRatio', label: 'Önbellek %', labelKey: 'table.col.cachePct' },
+  { field: 'totalCostUSD', label: 'Tahmini Tutar', labelKey: 'table.col.cost' },
+  { field: 'actions', label: 'İşlem', labelKey: 'table.col.actions' },
 ]);
+
+/** Sütun başlığını aktif dilde döner (labelKey yoksa sabit etikete düşer). */
+export function getColumnLabel(column) {
+  if (!column) return '';
+  return column.labelKey ? t(column.labelKey) : String(column.label || '');
+}
 
 /**
  * Faz 33: Kullanıcının hücreye yazdığı sayıyı çözer.
@@ -104,7 +115,7 @@ function createRowElement(doc, record) {
       removeButton.className = 'btn-remove-row';
       removeButton.dataset.action = 'remove-row';
       removeButton.dataset.rowId = record.id;
-      removeButton.title = 'Satırı sil';
+      removeButton.title = t('table.removeRow');
       removeButton.textContent = '✕';
       cell.appendChild(removeButton);
     } else {
@@ -137,7 +148,7 @@ function ensureTableStructure(containerEl) {
   for (const column of USAGE_TABLE_COLUMNS) {
     const th = doc.createElement('th');
     th.dataset.field = column.field;
-    th.textContent = column.label;
+    th.textContent = getColumnLabel(column);
     headRow.appendChild(th);
   }
   thead.appendChild(headRow);
@@ -153,13 +164,13 @@ function ensureTableStructure(containerEl) {
   addButton.type = 'button';
   addButton.className = 'btn-add-row';
   addButton.dataset.action = 'add-row';
-  addButton.textContent = '+ Satır Ekle';
+  addButton.textContent = t('table.addRow');
 
   const summary = doc.createElement('span');
   summary.className = 'usage-summary';
   const summaryLabel = doc.createElement('span');
   summaryLabel.className = 'usage-summary-label';
-  summaryLabel.textContent = 'Toplam Tahmini Tutar: ';
+  summaryLabel.textContent = t('table.summaryLabel');
   const summaryValue = doc.createElement('strong');
   summaryValue.className = 'usage-summary-value';
   summaryValue.dataset.summary = 'totalCostUSD';
@@ -462,6 +473,36 @@ export const FINOPS_METRIC_LABELS = Object.freeze({
   quota: 'Kotaya Yansıyan İstek & Token',
 });
 
+/** Para birimi kodunu normalize eder (boş/geçersiz değerde USD). */
+function normalizeCurrencyCode(currencyCode) {
+  const raw = currencyCode === undefined || currencyCode === null ? '' : currencyCode;
+  const code = String(raw).trim().toUpperCase();
+  return code === '' ? 'USD' : code;
+}
+
+/**
+ * Faz 49: "Gerçek Fatura" kartının etiketi seçili para birimine ve aktif dile göre değişir.
+ * USD seçiliyken tek para birimi, TRY/EUR seçiliyken ikili (USD & hedef) gösterim olur.
+ * Geriye dönük uyum: varsayılan 'TRY' + 'tr' eski sabit etiketi birebir üretir.
+ * @param {string} [currencyCode='TRY']
+ * @returns {string}
+ */
+export function buildFinOpsInvoiceLabel(currencyCode = 'TRY') {
+  const code = normalizeCurrencyCode(currencyCode);
+  return t('card.invoice', { cur: code === 'USD' ? 'USD' : `USD & ${code}` });
+}
+
+/**
+ * FinOps kart etiketini aktif dilde döner (invoice alanı para birimine duyarlıdır).
+ * @param {string} field
+ * @param {string} [currencyCode='TRY']
+ * @returns {string}
+ */
+export function finOpsMetricLabel(field, currencyCode = 'TRY') {
+  if (field === 'invoice') return buildFinOpsInvoiceLabel(currencyCode);
+  return t(`card.${field}`);
+}
+
 /** Kart renk vurguları: yeşil = tasarruf, mavi = gerçek fatura. */
 export const FINOPS_METRIC_VARIANTS = Object.freeze({
   withoutCache: 'neutral',
@@ -482,11 +523,14 @@ function normalizeCurrencyRates(currencyRate) {
 /**
  * Faz 37: Özet nesnesinden kart metinlerini üretir (saf fonksiyon).
  * Tüm sayılar Faz 10 formatlayıcılarından geçer.
+ * Faz 49: Hedef para birimi dışarıdan verilir; USD seçiliyken yalnızca USD,
+ * TRY/EUR seçiliyken "USD / hedef" ikili gösterim üretilir.
  * @param {object} summary
  * @param {number|object} [currencyRate]
+ * @param {string} [currencyCode='TRY']
  * @returns {Record<string, string>}
  */
-export function buildFinOpsMetricValues(summary, currencyRate) {
+export function buildFinOpsMetricValues(summary, currencyRate, currencyCode = 'TRY') {
   const source = summary && typeof summary === 'object' ? summary : {};
   const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
@@ -497,26 +541,43 @@ export function buildFinOpsMetricValues(summary, currencyRate) {
   const requests = Math.round(num(source.totalRequests));
   const netTokens = Math.round(num(source.totalBilledTokens) || num(source.totalTokens));
 
-  const invoiceTRY = convertCurrency(invoiceUSD, 'TRY', normalizeCurrencyRates(currencyRate)).formatted;
+  const code = normalizeCurrencyCode(currencyCode);
+  let invoice = formatCostDisplay(invoiceUSD);
+
+  if (code !== 'USD') {
+    try {
+      const converted = convertCurrency(invoiceUSD, code, normalizeCurrencyRates(currencyRate));
+      invoice = t('card.pair', { primary: invoice, secondary: converted.formatted });
+    } catch {
+      // Kur bilgisi olmayan/bilinmeyen kodlarda USD gösterimi korunur (çökme yok).
+      invoice = formatCostDisplay(invoiceUSD);
+    }
+  }
 
   return {
     withoutCache: formatCostDisplay(withoutCacheUSD),
-    cacheSavings: savedUSD > 0 ? `-${formatCostDisplay(savedUSD)} (Kâr)` : formatCostDisplay(0),
-    savingsBadge: `%${hitRate} Hit`,
-    invoice: `${formatCostDisplay(invoiceUSD)} / ${invoiceTRY}`,
-    quota: `${formatTokenCount(requests).full} İstek | ${formatTokenCount(netTokens).short} Net Token`,
+    cacheSavings: savedUSD > 0
+      ? t('card.savingsProfit', { amount: formatCostDisplay(savedUSD) })
+      : formatCostDisplay(0),
+    savingsBadge: t('card.savingsBadge', { pct: hitRate }),
+    invoice,
+    quota: t('card.quotaValue', {
+      requests: formatTokenCount(requests).full,
+      tokens: formatTokenCount(netTokens).short,
+    }),
   };
 }
 
 /**
  * Faz 37: FinOps özet kartlarını çizer (4 metrik) ve mevcut kartları yeniden kullanır.
- * İkinci çağrıda kartlar çoğaltılmaz; yalnızca değerler güncellenir.
+ * İkinci çağrıda kartlar çoğaltılmaz; yalnızca değerler (ve para birimi etiketi) güncellenir.
  * @param {HTMLElement} containerEl
  * @param {object} summary
  * @param {number|object} [currencyRate]
+ * @param {string} [currencyCode='TRY']
  * @returns {{ element: HTMLElement, values: object, refresh: Function }}
  */
-export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
+export function renderFinOpsSummaryCards(containerEl, summary, currencyRate, currencyCode = 'TRY') {
   if (!containerEl || typeof containerEl.querySelector !== 'function') {
     throw new TypeError('ERR_INVALID_CONTAINER_ELEMENT');
   }
@@ -525,6 +586,7 @@ export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
   const fields = Object.keys(FINOPS_METRIC_LABELS);
   let grid = containerEl.querySelector('.finops-cards');
   const cards = {};
+  let activeCurrency = normalizeCurrencyCode(currencyCode);
 
   if (!grid) {
     grid = doc.createElement('div');
@@ -537,7 +599,7 @@ export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
 
       const label = doc.createElement('span');
       label.className = 'finops-card-label';
-      label.textContent = FINOPS_METRIC_LABELS[field];
+      label.textContent = finOpsMetricLabel(field, activeCurrency);
 
       const value = doc.createElement('strong');
       value.className = 'finops-card-value';
@@ -561,6 +623,7 @@ export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
     const card = grid.querySelector(`[data-metric="${field}"]`);
     cards[field] = {
       card,
+      label: card ? card.querySelector('.finops-card-label') : null,
       value: card ? card.querySelector('.finops-card-value') : null,
       badge: card ? card.querySelector('.finops-card-badge') : null,
     };
@@ -568,11 +631,15 @@ export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
 
   /** Metinleri yazar (aynı metinde gereksiz DOM güncellemesi yapmaz). */
   function apply(nextSummary) {
-    const values = buildFinOpsMetricValues(nextSummary, currencyRate);
+    const values = buildFinOpsMetricValues(nextSummary, currencyRate, activeCurrency);
 
     for (const field of fields) {
       const parts = cards[field];
       if (!parts || !parts.value) continue;
+      if (parts.label) {
+        const label = finOpsMetricLabel(field, activeCurrency);
+        if (parts.label.textContent !== label) parts.label.textContent = label;
+      }
       if (parts.value.textContent !== values[field]) parts.value.textContent = values[field];
       if (parts.badge && parts.badge.textContent !== values.savingsBadge) {
         parts.badge.textContent = values.savingsBadge;
@@ -588,12 +655,65 @@ export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
     element: grid,
     cards,
     values,
-    refresh: (nextSummary) => apply(nextSummary),
+    refresh: (nextSummary, nextCurrencyCode) => {
+      if (nextCurrencyCode !== undefined && nextCurrencyCode !== null) {
+        activeCurrency = normalizeCurrencyCode(nextCurrencyCode);
+      }
+      return apply(nextSummary);
+    },
   };
 }
 
 /** İlerleme çubuğu için erişilebilirlik (ARIA) etiketi. */
 export const PROGRESS_ARIA_LABEL = 'OCR ilerlemesi';
+
+/* ------------------------------------------------------------------ *
+ * Faz 49: i18n — statik DOM iskeletini aktif dile göre çevirir
+ * ------------------------------------------------------------------ */
+
+/**
+ * `data-i18n-<attribute>` ile çevrilebilen öznitelikler.
+ * Örnek: data-i18n-placeholder="input.paste.placeholder"
+ */
+export const TRANSLATABLE_ATTRIBUTES = Object.freeze([
+  'placeholder',
+  'title',
+  'aria-label',
+]);
+
+/**
+ * Faz 49: Kök düğüm altındaki `data-i18n*` işaretli elementlere aktif dilin metnini yazar.
+ * Dil değiştiğinde statik HTML iskeleti (index.html) yeniden çevrilir; üretilen
+ * bileşenler zaten `t()` ile çizildiği için ayrıca bir şey yapmak gerekmez.
+ * @param {Document|HTMLElement} rootEl
+ * @returns {number} Güncellenen düğüm sayısı (test/gözlem için)
+ */
+export function applyTranslations(rootEl) {
+  if (!rootEl || typeof rootEl.querySelectorAll !== 'function') return 0;
+
+  let updated = 0;
+
+  for (const node of rootEl.querySelectorAll('[data-i18n]')) {
+    const key = node.getAttribute('data-i18n');
+    if (!key) continue;
+    const text = t(key);
+    if (node.textContent !== text) node.textContent = text;
+    updated += 1;
+  }
+
+  for (const attribute of TRANSLATABLE_ATTRIBUTES) {
+    for (const node of rootEl.querySelectorAll(`[data-i18n-${attribute}]`)) {
+      const key = node.getAttribute(`data-i18n-${attribute}`);
+      if (!key) continue;
+      const value = t(key);
+      if (node.getAttribute(attribute) !== value) node.setAttribute(attribute, value);
+      updated += 1;
+    }
+  }
+
+  return updated;
+}
+
 
 /** Yüzdeyi 0-100 aralığına sıkıştırır (geçersiz/NaN değerlerde 0 döner). */
 function clampPercentage(value) {
@@ -694,6 +814,12 @@ const TOAST_TYPE_TITLES = Object.freeze({
   error: 'Hata',
 });
 
+/** Toast başlığını aktif dilde döner (Faz 49: i18n). Bilinmeyen tip 'info' sayılır. */
+export function toastTitleFor(type) {
+  const safeType = TOAST_TYPES.includes(type) ? type : 'info';
+  return t(`toast.${safeType}`);
+}
+
 /** Bildirimlerin birikeceği listeyi (aria-live) bir kez oluşturur. */
 function ensureToastContainer(toastContainer) {
   const existing = toastContainer.querySelector('.toast-container');
@@ -727,7 +853,7 @@ export function showNotification(toastContainer, {
   const list = ensureToastContainer(toastContainer);
   const doc = toastContainer.ownerDocument;
   const safeType = TOAST_TYPES.includes(type) ? type : 'info';
-  const safeTitle = title === undefined || title === null || title === '' ? TOAST_TYPE_TITLES[safeType] : String(title);
+  const safeTitle = title === undefined || title === null || title === '' ? toastTitleFor(safeType) : String(title);
   const safeMessage = message === undefined || message === null ? '' : String(message);
 
   const toast = doc.createElement('div');

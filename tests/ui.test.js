@@ -11,6 +11,8 @@ import {
 import {
   renderUsageTable,
   renderFinOpsSummaryCards,
+  buildFinOpsMetricValues,
+  buildFinOpsInvoiceLabel,
   renderAppFooter,
   updateProgressBanner,
   showNotification,
@@ -750,6 +752,28 @@ describe('Faz 37: renderFinOpsSummaryCards', () => {
     const quota = container.querySelector('[data-metric="quota"]');
     expect(quota.querySelector('.finops-card-value').textContent).toBe('4.044 İstek | 28,5M Net Token');
   });
+
+  it('seçili para birimi kart değerini ve etiketini değiştirir (USD/TRY/EUR)', () => {
+    const container = createContainer();
+    const rates = { TRY: 36.5, EUR: 0.92 };
+
+    renderFinOpsSummaryCards(container, createSummary(), rates, 'EUR');
+    const invoice = container.querySelector('[data-metric="invoice"]');
+    expect(invoice.querySelector('.finops-card-value').textContent).toBe('$13.80 / €12,70');
+    expect(invoice.querySelector('.finops-card-label').textContent).toBe('Gerçek Fatura (USD & EUR)');
+
+    // Para birimi değişince aynı kart yeniden kullanılır, yalnızca metin güncellenir.
+    renderFinOpsSummaryCards(container, createSummary(), rates, 'USD');
+    expect(container.querySelectorAll('.finops-card')).toHaveLength(4);
+    expect(invoice.querySelector('.finops-card-value').textContent).toBe('$13.80');
+    expect(invoice.querySelector('.finops-card-label').textContent).toBe('Gerçek Fatura (USD)');
+    expect(invoice.querySelector('.finops-card-value').textContent).not.toContain('₺');
+
+    // Bilinmeyen kod (kur yok) çökmez; USD gösterimine düşer.
+    expect(buildFinOpsMetricValues(createSummary(), rates, 'GBP').invoice).toBe('$13.80');
+    expect(buildFinOpsInvoiceLabel('GBP')).toBe('Gerçek Fatura (USD & GBP)');
+  });
+
 
   it('boş/geçersiz özet verildiğinde çökmeden sıfır değerleri gösterir', () => {
     for (const input of [undefined, null, {}]) {

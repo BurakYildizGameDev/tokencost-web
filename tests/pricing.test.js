@@ -198,6 +198,30 @@ describe('Faz 19: loadPricingCatalog', () => {
     expect(result.catalog.cachedModel).toBeDefined();
   });
 
+  it('Faz 49: forceRefresh taze önbelleği atlar ve fiyatları ağdan yeniden çeker', async () => {
+    const storage = createMemoryStorage();
+    const now = 1_000_000_000_000;
+    storage.setItem(PRICING_CACHE_KEY, JSON.stringify({
+      savedAt: now - 1000,
+      catalog: { cachedModel: { modelId: 'cachedModel' } },
+    }));
+    let fetchCalls = 0;
+    const fetchFn = async () => {
+      fetchCalls += 1;
+      return { ok: true, status: 200, json: async () => litellmJson };
+    };
+
+    const result = await loadPricingCatalog({ storage, fetchFn, now, forceRefresh: true });
+
+    expect(fetchCalls).toBeGreaterThan(0);
+    expect(result.source).toBe('litellm');
+    expect(result.catalog['deepseek-chat']).toBeDefined();
+    expect(result.catalog.cachedModel).toBeUndefined();
+    // Yeni katalog önbelleğe yazılır (sonraki açılışta taze veri).
+    const cached = JSON.parse(storage.getItem(PRICING_CACHE_KEY));
+    expect(cached.catalog['deepseek-chat']).toBeDefined();
+  });
+
   it('önbellek yoksa LiteLLM denenir ve önbelleğe kaydedilir', async () => {
     const storage = createMemoryStorage();
     const fetchFn = async (url) => {

@@ -227,11 +227,13 @@ function writeCache(store, payload) {
 /**
  * Faz 19: 3 kademeli fiyat kataloğu yükleme zinciri.
  * Cache -> LiteLLM -> OpenRouter -> statik fallback.
+ * Faz 49: forceRefresh = true iken taze önbellek atlanır (kullanıcı "Anlık Fiyat Sorgula" dedi).
  * @param {object} options
  * @param {Storage} [options.storage]
  * @param {Function} [options.fetchFn=globalThis.fetch]
  * @param {Record<string, object>} [options.fallbackData]
  * @param {number} [options.now=Date.now()]
+ * @param {boolean} [options.forceRefresh=false] Önbelleği yok say ve ağdan yeniden çek
  * @returns {Promise<{ catalog: object, source: string, isOfflineFallback: boolean, savedAt: number|null }>}
  */
 export async function loadPricingCatalog({
@@ -239,12 +241,13 @@ export async function loadPricingCatalog({
   fetchFn = globalThis.fetch,
   fallbackData = {},
   now = Date.now(),
+  forceRefresh = false,
 } = {}) {
   const store = storage
     || (typeof globalThis.localStorage !== 'undefined' ? globalThis.localStorage : null);
 
-  // 1) Önbellek (taze ise ağ isteği yapmadan dön).
-  if (store && typeof store.getItem === 'function') {
+  // 1) Önbellek (taze ise ağ isteği yapmadan dön). forceRefresh ile atlanır.
+  if (!forceRefresh && store && typeof store.getItem === 'function') {
     try {
       const raw = store.getItem(PRICING_CACHE_KEY);
       if (raw) {
