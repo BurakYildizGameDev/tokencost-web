@@ -607,6 +607,28 @@ Dört geri bildirim başlığının tamamı tek fazda kapatıldı.
 - Doğrulama: `npm start` arka planda çalıştırıldı; `http://localhost:5173/` → 200 (8285 bayt),
   `/src/main.js` → 200 `text/javascript; charset=utf-8`; site tarayıcıda açıldı.
 
-_Doküman, depodaki gerçek dosya ve commit durumuna göre hazırlanmıştır; tüm sayı ve hash'ler `git log`,
-`npm test`, `python -c "yaml.safe_load(...)"` ve yerel Pages paketi simülasyonu çıktılarından doğrulanmıştır._
+---
+
+## 15. Faz 50 — Tarayıcı OCR köprüsü, klavye etkileşimi, kademeli fallback ve iframe temizliği
+
+1. **Tarayıcıda Görsel Yükleme (OCR) Köprüsü:**
+   - `src/app.js` içine `readImageFileAsImageData(file, environment)` eklendi; tarayıcı `File`/`Blob` nesneleri `createImageBitmap` + `OffscreenCanvas` veya `<canvas>` üzerinden `{ name, data, width, height }` piksel dizisine dönüştürülür.
+   - `src/ocr/ocr-engine.js` `resolveImageData` asenkron yapılarak `getImageData()` sözü çözülür hâle getirildi. Gerçek tarayıcıda görsel yükleme `ERR_UNSUPPORTED_IMAGE_INPUT` hatası vermeden OCR boru hattına akar.
+2. **Tablo Hücresi Klavye Etkileşimi (Enter / Escape / A11y):**
+   - `src/ui/components.js` içine `keydown` dinleyicisi eklendi; hücre düzenlenirken `Enter` basıldığında değişiklik kaydedilip input kapatılır, `Escape` basıldığında düzenleme iptal edilir (eski değere dönülür).
+   - Odaklanmış düzenlenebilir hücrede `Enter` veya `Space` tuşuna basıldığında klavyeden düzenleme modu başlatılır.
+3. **Kademeli Fallback Fiyatlandırmasının Bağlanması:**
+   - `src/ui/store.js` `createFallbackProfile`, `normalizer.resolveFallbackPricing` fonksiyonunu çağırır; model adında `pro`, `flash`, `embed` gibi anahtar kelimeler varsa kademeli fallback, yoksa geriye dönük uyumlu `FALLBACK_PRICING` (0.14 / 0.28) fiyatı uygulanır. Ölü kod kaldırıldı.
+4. **PDF Yazdırma Iframe Temizliği (Bellek Sızıntısı Koruması):**
+   - `src/services/export-service.js` `printReportHTMLInIframe`, yazdırma penceresi kapandığında (`afterprint` olayı) veya zaman aşımı sonrasında gizli iframe'i DOM'dan temizler.
+5. **i18n ve Bildirim Metinlerinin Standartlaştırılması:**
+   - `src/app.js` içindeki `loadText`, `loadImages` ve `bootstrapPricing` bildirimlerinde sabit Türkçe metinler yerine `t('msg.rowsAdded')`, `t('msg.ocrProcessed')`, `t('msg.ocrPreprocess')`, `t('msg.ocrFailed')` ve `t('toast.info')` anahtarları bağlandı.
+6. **Doğrulama ve Yeni Testler:**
+   - `tests/ui.test.js` (+3 test: Enter ile kaydetme, Escape ile iptal, klavyeyle hücre açma).
+   - `tests/store.test.js` (+1 test: bilinmeyen pro/flash/embed modellerinde kademeli fallback).
+   - `tests/export.test.js` (+1 test: afterprint ile iframe temizliği).
+   - `tests/ocr.test.js` (+1 test: asenkron getImageData çözümü).
+   - `npx vitest run` → **354 test / 17 dosya, tamamı yeşil**.
+
+_Doküman, depodaki gerçek dosya ve commit durumuna göre güncellenmiştir._
 

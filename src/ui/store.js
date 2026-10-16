@@ -13,7 +13,12 @@ import {
   validateTokenConsistency,
 } from '../core/calculator.js';
 import { applyCustomPriceOverrides } from '../services/pricing-service.js';
-import { fuzzyMatchModel, normalizeModelName, resolveModelAlias } from '../core/normalizer.js';
+import {
+  fuzzyMatchModel,
+  normalizeModelName,
+  resolveFallbackPricing,
+  resolveModelAlias,
+} from '../core/normalizer.js';
 
 /** Değiştiğinde türetilmiş durumun (derived state) yeniden hesaplanmasını tetikleyen alanlar. */
 const DERIVED_INPUT_KEYS = Object.freeze(['records', 'customPrices', 'pricingCatalog']);
@@ -58,10 +63,23 @@ function normalizeRecord(record) {
   return createTokenRecord(record || {});
 }
 
-/** Varsayılan (fallback) fiyat profilini üretir. */
+/** Varsayılan (fallback) fiyat profilini üretir (anahtar kelime varsa kademeli, yoksa sabit). */
 function createFallbackProfile(modelId) {
+  const tiered = resolveFallbackPricing(modelId);
+  if (tiered && tiered.modelId !== 'tier-standard-fallback') {
+    return createPricingProfile({
+      modelId,
+      displayName: modelId,
+      cachedInputCostPerMillion: tiered.cachedInputCostPerMillion,
+      uncachedInputCostPerMillion: tiered.uncachedInputCostPerMillion,
+      outputCostPerMillion: tiered.outputCostPerMillion,
+      source: FALLBACK_PRICING_SOURCE,
+    });
+  }
+
   return createPricingProfile({
     modelId,
+    displayName: modelId,
     uncachedInputCostPerMillion: FALLBACK_PRICING.uncachedInputCostPerMillion,
     outputCostPerMillion: FALLBACK_PRICING.outputCostPerMillion,
     source: FALLBACK_PRICING_SOURCE,

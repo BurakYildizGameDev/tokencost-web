@@ -368,4 +368,21 @@ describe('Faz 30: processMultipleImagesToRecords', () => {
   it('geçersiz ocrManager enjeksiyonunda TypeError fırlatır', async () => {
     await expect(processMultipleImagesToRecords([], null)).rejects.toThrow(TypeError);
   });
+
+  it('getImageData fonksiyonu asenkron Promise dönse bile başarıyla çözer', async () => {
+    const manager = createFakeOCRManager([{ data: { text: ROW_A } }]);
+    const asyncFile = {
+      name: 'async-img.png',
+      getImageData: async () => ({
+        data: new Uint8ClampedArray(4),
+        width: 1,
+        height: 1,
+      }),
+    };
+
+    const result = await processMultipleImagesToRecords([asyncFile], manager);
+    expect(result.records).toHaveLength(1);
+    expect(result.errors).toEqual([]);
+    expect(result.records[0].model).toBe('deepseek-v4.1-flash');
+  });
 });

@@ -388,10 +388,34 @@ export function printReportHTMLInIframe(reportHTML, environment = {}) {
     frame.contentDocument.close();
   }
 
+  const cleanup = () => {
+    try {
+      if (typeof frame.remove === 'function') frame.remove();
+      else if (frame.parentNode && typeof frame.parentNode.removeChild === 'function') {
+        frame.parentNode.removeChild(frame);
+      }
+    } catch {
+      // sessizce geç
+    }
+  };
+
   const frameWindow = frame.contentWindow;
   if (frameWindow) {
+    if (typeof frameWindow.addEventListener === 'function') {
+      try {
+        frameWindow.addEventListener('afterprint', cleanup, { once: true });
+      } catch {
+        // afterprint desteklenmiyorsa timeout yedeğine güven
+      }
+    }
     if (typeof frameWindow.focus === 'function') frameWindow.focus();
     if (typeof frameWindow.print === 'function') frameWindow.print();
+  }
+
+  // Yazdırma penceresi kapatıldığında veya iptal edildiğinde temizleme yedeği
+  const win = env.window || (typeof globalThis !== 'undefined' ? globalThis : null);
+  if (win && typeof win.setTimeout === 'function') {
+    win.setTimeout(cleanup, 60000);
   }
 
   return { mode: 'print', element: frame };

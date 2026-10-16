@@ -252,6 +252,7 @@ function startEditing(cell, store) {
   input.dataset.field = cell.dataset.field;
   input.dataset.rowId = cell.dataset.rowId;
   input.value = formatEditableValue(cell.dataset.field, record);
+  input.dataset.originalValue = input.value;
 
   cell.dataset.editing = 'true';
   cell.textContent = '';
@@ -289,11 +290,26 @@ function commitInput(input, store) {
 /** Düzenlemeyi kapatır: hücre yeniden biçimli metni gösterir. */
 function finishEditing(input, store) {
   const cell = input.parentElement;
-  if (!cell) return;
+  if (!cell || cell.dataset.editing !== 'true') return;
 
   commitInput(input, store);
   delete cell.dataset.editing;
 
+  const record = findRecordById(store, cell.dataset.rowId);
+  cell.textContent = record ? formatCellValue(cell.dataset.field, record) : '';
+}
+
+/** Düzenlemeyi iptal eder: canlı yazılan değer geri alınır ve hücre eski değerle kapatılır. */
+function cancelEditing(input, store) {
+  const cell = input.parentElement;
+  if (!cell || cell.dataset.editing !== 'true') return;
+
+  // Bayrak önce kaldırılır: input DOM'dan çıkarken tetiklenebilecek blur kaydetme yapmaz.
+  delete cell.dataset.editing;
+  if (input.value !== input.dataset.originalValue) {
+    input.value = input.dataset.originalValue;
+    commitInput(input, store);
+  }
   const record = findRecordById(store, cell.dataset.rowId);
   cell.textContent = record ? formatCellValue(cell.dataset.field, record) : '';
 }
@@ -332,14 +348,46 @@ function bindTableEvents(containerEl, store) {
     if (target.classList.contains('cell-input')) finishEditing(target, store);
   }
 
+  function onKeyDown(event) {
+    const target = event.target;
+    if (!target) return;
+
+    // Hücre düzenlenirken: Enter onaylar/kapatır, Escape iptal eder
+    if (target.classList && target.classList.contains('cell-input')) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        target.blur();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelEditing(target, store);
+        return;
+      }
+    }
+
+    // Odaklanmış hücredeyken: Enter veya Space ile düzenlemeyi aç
+    if (typeof target.closest === 'function') {
+      const cell = target.closest('td[data-field]');
+      if (cell && cell.dataset.editable === 'true' && cell.dataset.editing !== 'true') {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          startEditing(cell, store);
+        }
+      }
+    }
+  }
+
   containerEl.addEventListener('click', onClick);
   containerEl.addEventListener('input', onInput);
   containerEl.addEventListener('blur', onBlur, true);
+  containerEl.addEventListener('keydown', onKeyDown);
 
   return function unbind() {
     containerEl.removeEventListener('click', onClick);
     containerEl.removeEventListener('input', onInput);
     containerEl.removeEventListener('blur', onBlur, true);
+    containerEl.removeEventListener('keydown', onKeyDown);
   };
 }
 

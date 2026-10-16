@@ -450,6 +450,52 @@ describe('Faz 33: renderUsageTable - hücre düzenleme (inline edit)', () => {
     findCell(container, 0, 'totalCostUSD').click();
     expect(findCell(container, 0, 'totalCostUSD').querySelector('input')).toBeNull();
   });
+
+  it('Enter tuşuna basıldığında hücredeki düzenleme kaydedilir ve input kapanır', () => {
+    const container = createContainer();
+    const store = createTableFixture();
+    renderUsageTable(container, store.getState().calculatedRecords, store);
+
+    const cell = findCell(container, 0, 'requests');
+    cell.click();
+    const input = cell.querySelector('input');
+    input.value = '999';
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(cell.querySelector('input')).toBeNull();
+    expect(store.getState().records[0].requests).toBe(999);
+    expect(cell.textContent).toBe('999');
+  });
+
+  it('Escape tuşuna basıldığında düzenleme iptal edilir ve eski değer korunur', () => {
+    const container = createContainer();
+    const store = createTableFixture();
+    renderUsageTable(container, store.getState().calculatedRecords, store);
+
+    const cell = findCell(container, 0, 'model');
+    cell.click();
+    const input = cell.querySelector('input');
+    input.value = 'gecersiz-degisiklik';
+    // Canlı input olayı değeri store'a yazar; Escape bunu geri almalıdır.
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(cell.querySelector('input')).toBeNull();
+    expect(store.getState().records[0].model).toBe('deepseek-v4.1-flash');
+    expect(cell.textContent).toBe('deepseek-v4.1-flash');
+  });
+
+  it('odaklanmış düzenlenebilir hücrede Enter tuşu ile düzenleme modu açılır', () => {
+    const container = createContainer();
+    const store = createTableFixture();
+    renderUsageTable(container, store.getState().calculatedRecords, store);
+
+    const cell = findCell(container, 0, 'model');
+    cell.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(cell.querySelector('input')).not.toBeNull();
+    expect(cell.dataset.editing).toBe('true');
+  });
 });
 
 describe('Faz 33: renderUsageTable - satır ekleme/silme ve store aboneliği', () => {

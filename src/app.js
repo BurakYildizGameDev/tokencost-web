@@ -288,6 +288,91 @@ function readFileAsText(file, environment = {}) {
   });
 }
 
+/**
+ * Tarayıcı File/Blob nesnesini OCR ön işlemesi için piksel verisine ({ name, data, width, height }) çevirir.
+ * createImageBitmap + OffscreenCanvas (veya HTMLImageElement + Canvas) kullanır.
+ * Saf piksel nesnesi veya mock ise doğrudan döner.
+ */
+async function readImageFileAsImageData(file, environment = {}) {
+  if (!file) return null;
+  if (file.imageData || (file.data && Number(file.width) > 0) || typeof file.getImageData === 'function') {
+    return file;
+  }
+
+  const doc = environment.document || (typeof document !== 'undefined' ? document : null);
+  const win = (doc && doc.defaultView) || (typeof window !== 'undefined' ? window : globalThis);
+
+  // 1. Modern API: createImageBitmap + OffscreenCanvas
+  if (typeof win.createImageBitmap === 'function' && typeof win.OffscreenCanvas === 'function') {
+    try {
+      const bitmap = await win.createImageBitmap(file);
+      const canvas = new win.OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(bitmap, 0, 0);
+        const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+        if (typeof bitmap.close === 'function') bitmap.close();
+        return {
+          name: file.name || 'image',
+          data: imgData.data,
+          width: bitmap.width,
+          height: bitmap.height,
+        };
+      }
+    } catch {
+      // 2. adıma düş
+    }
+  }
+
+  // 2. DOM Canvas API: Image + document.createElement('canvas')
+  if (doc && typeof doc.createElement === 'function') {
+    const URLImpl = environment.URL || win.URL || globalThis.URL;
+    if (URLImpl && typeof URLImpl.createObjectURL === 'function') {
+      try {
+        return await new Promise((resolve) => {
+          const img = doc.createElement('img');
+          const objectUrl = URLImpl.createObjectURL(file);
+          img.onload = () => {
+            try {
+              const canvas = doc.createElement('canvas');
+              const w = img.naturalWidth || img.width || 1;
+              const h = img.naturalHeight || img.height || 1;
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                const imgData = ctx.getImageData(0, 0, w, h);
+                URLImpl.revokeObjectURL(objectUrl);
+                resolve({
+                  name: file.name || 'image',
+                  data: imgData.data,
+                  width: w,
+                  height: h,
+                });
+                return;
+              }
+            } catch {
+              // yoksay
+            }
+            URLImpl.revokeObjectURL(objectUrl);
+            resolve(file);
+          };
+          img.onerror = () => {
+            URLImpl.revokeObjectURL(objectUrl);
+            resolve(file);
+          };
+          img.src = objectUrl;
+        });
+      } catch {
+        // Hata durumunda dosyayı olduğu gibi bırak
+      }
+    }
+  }
+
+  return file;
+}
+
 /** HTML özel karakterlerini kaçırır (grafik/etiket metinleri güvenle gömülür). */
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (char) => ({
@@ -304,12 +389,6 @@ function describeError(error) {
   return error && typeof error.message === 'string' && error.message !== ''
     ? error.message
     : 'Beklenmeyen bir hata oluştu';
-}
-
-/** Satır sayısını kullanıcı dostu metne çevirir ("13 satır"). */
-function formatRowCount(count) {
-  const value = Number.isFinite(Number(count)) ? Math.round(Number(count)) : 0;
-  return `${value} satır`;
 }
 
 /**
@@ -635,9 +714,10 @@ export function initApp(rootElement, options = {}) {
     }
 
     store.addRecords(parsed.records);
+    const rowCountStr = t('msg.unitRows', { count: parsed.records.length });
     notify({
       type: 'success',
-      message: `${formatRowCount(parsed.records.length)} tabloya eklendi`,
+      message: t('msg.rowsAdded', { count: rowCountStr }),
     });
 
     return { added: parsed.records.length, parsed };
@@ -694,12 +774,17 @@ export function initApp(rootElement, options = {}) {
     updateProgressBanner(banner, {
       step: 'ocr',
       percentage: 0,
-      message: 'Ekran görüntüleri işleniyor...',
+      message: t('msg.ocrPreprocess', { label: t('drop.title') }),
       isVisible: true,
     });
 
     try {
-      const result = await processMultipleImagesToRecords(imageFiles, manager, (progress) => {
+      const preparedFiles = [];
+      for (const file of imageFiles) {
+        preparedFiles.push(await readImageFileAsImageData(file, environment));
+      }
+
+      const result = await processMultipleImagesToRecords(preparedFiles, manager, (progress) => {
         updateProgressBanner(banner, {
           step: progress && progress.step ? progress.step : 'ocr',
           percentage: progress ? progress.percentage : 0,
@@ -709,15 +794,16 @@ export function initApp(rootElement, options = {}) {
       });
 
       store.addRecords(result.records);
+      const rowCountStr = t('msg.unitRows', { count: result.records.length });
       updateProgressBanner(banner, {
         step: 'done',
         percentage: 100,
-        message: `${formatRowCount(result.records.length)} görselden okundu`,
+        message: t('msg.ocrProcessed', { count: rowCountStr }),
         isVisible: true,
       });
       notify({
         type: 'success',
-        message: `${formatRowCount(result.records.length)} görselden okundu`,
+        message: t('msg.ocrProcessed', { count: rowCountStr }),
       });
 
       return result;
@@ -725,7 +811,7 @@ export function initApp(rootElement, options = {}) {
       updateProgressBanner(banner, {
         step: 'error',
         percentage: 0,
-        message: 'Görsel işlenemedi',
+        message: t('msg.ocrFailed'),
         isVisible: true,
       });
       notify({ type: 'error', message: describeError(error) });
@@ -845,7 +931,7 @@ export function initApp(rootElement, options = {}) {
       });
 
       if (result.isOfflineFallback) {
-        notify({ type: 'info', title: 'Çevrimdışı fiyatlar', message: t('msg.offlinePricing') });
+        notify({ type: 'info', title: t('toast.info'), message: t('msg.offlinePricing') });
       }
 
       return result;

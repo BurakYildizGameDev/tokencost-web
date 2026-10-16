@@ -293,6 +293,34 @@ describe('Faz 39: exportToPDF', () => {
     expect(() => exportToPDF('<html></html>', 'x.pdf', null, { document: null }))
       .toThrow('ERR_DOM_UNAVAILABLE');
   });
+
+  it('print sonrası afterprint tetiklendiğinde iframe DOM\'dan temizlenir (memory leak koruması)', () => {
+    let afterPrintHandler;
+    const removeSpy = vi.fn();
+    const frame = {
+      className: '',
+      style: {},
+      setAttribute: vi.fn(),
+      contentDocument: { open: vi.fn(), write: vi.fn(), close: vi.fn() },
+      contentWindow: {
+        focus: vi.fn(),
+        print: vi.fn(),
+        addEventListener: vi.fn((event, handler) => {
+          if (event === 'afterprint') afterPrintHandler = handler;
+        }),
+      },
+      remove: removeSpy,
+    };
+    const environment = {
+      document: { createElement: () => frame, body: { appendChild: vi.fn() } },
+    };
+
+    exportToPDF('<html>rapor</html>', undefined, null, environment);
+
+    expect(typeof afterPrintHandler).toBe('function');
+    afterPrintHandler();
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 

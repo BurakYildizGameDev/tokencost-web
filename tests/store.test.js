@@ -199,6 +199,30 @@ describe('Faz 31: Türetilmiş durum (derived state) hesaplaması', () => {
     expect(state.calculatedRecords[0].pricingSource).toBe('fallback');
     expect(state.calculatedRecords[0].totalCostUSD).toBeGreaterThan(0);
   });
+
+  it('katalogda olmayan model adında pro/flash/embed varsa kademeli fallback politikasını uygular', () => {
+    const store = createAppStore({ pricingCatalog: createTestCatalog() });
+    store.addRecords([
+      createTestRecord({ model: 'unknown-pro-model', totalTokens: 1_000_000, cachedTokens: 0, billedTokens: 1_000_000 }),
+      createTestRecord({ model: 'unknown-flash-model', totalTokens: 1_000_000, cachedTokens: 0, billedTokens: 1_000_000 }),
+      createTestRecord({ model: 'unknown-embed-model', totalTokens: 1_000_000, cachedTokens: 0, billedTokens: 1_000_000 }),
+    ]);
+
+    const state = store.getState();
+    const [proRow, flashRow, embedRow] = state.calculatedRecords;
+
+    // Pro: uncached 1.0, output 3.0 -> blended (0.3*1.0 + 0.7*3.0) = 2.40
+    expect(proRow.pricingSource).toBe('fallback');
+    expect(proRow.blendedInputOutputCostPerMillion).toBe(2.4);
+
+    // Flash: uncached 0.15, output 0.45 -> blended (0.3*0.15 + 0.7*0.45) = 0.36
+    expect(flashRow.pricingSource).toBe('fallback');
+    expect(flashRow.blendedInputOutputCostPerMillion).toBe(0.36);
+
+    // Embed: uncached 0.02, output 0.02 -> blended 0.02
+    expect(embedRow.pricingSource).toBe('fallback');
+    expect(embedRow.blendedInputOutputCostPerMillion).toBe(0.02);
+  });
 });
 
 describe('Faz 31: Kayıt işlemleri (CRUD) ve sıfırlama', () => {

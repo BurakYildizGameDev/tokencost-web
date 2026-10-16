@@ -263,11 +263,11 @@ export function deduplicateRecords(records = []) {
 }
 
 /** OCR'a verilecek görüntü verisini çözer (canvas DIŞINDA, enjekte edilebilir biçim). */
-function resolveImageData(imageFile) {
+async function resolveImageData(imageFile) {
   if (!imageFile) throw new Error('ERR_EMPTY_IMAGE_FILE');
   if (imageFile.imageData) return imageFile.imageData;
   if (imageFile.data && Number(imageFile.width) > 0) return imageFile;
-  if (typeof imageFile.getImageData === 'function') return imageFile.getImageData();
+  if (typeof imageFile.getImageData === 'function') return await imageFile.getImageData();
   throw new Error('ERR_UNSUPPORTED_IMAGE_INPUT');
 }
 
@@ -312,7 +312,7 @@ export async function processMultipleImagesToRecords(imageFiles, ocrManager, onP
 
     try {
       notify({ step: 'preprocess', index: index + 1, total, percentage: startPercentage, message: `${label} ön işleniyor...` });
-      const imageData = resolveImageData(imageFile);
+      const imageData = await resolveImageData(imageFile);
 
       notify({ step: 'recognize', index: index + 1, total, percentage: startPercentage, message: `${label} okunuyor...` });
       const ocrResult = await ocrManager.recognize(imageData);
