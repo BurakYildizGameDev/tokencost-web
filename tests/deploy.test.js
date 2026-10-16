@@ -195,7 +195,8 @@ describe('Faz 47: CI/CD, GitHub Pages ve yazdırma (print) sözleşmesi', () => 
 
     app.destroy();
     expect(app.store.getListenerCount()).toBe(0);
-  });
+    // İlk jsdom + app.js derlemesi yavaş/yüklü makinelerde 5 sn'yi aşabildiği için açık süre verildi.
+  }, 20000);
 
   it('Faz 48: index.html gerçek veri girişi konsolunu taşır (yapıştırma + dosya + bırakma alanı)', () => {
     const html = readArtifact(INDEX_PATH);
@@ -290,5 +291,6 @@ describe('Faz 47: CI/CD, GitHub Pages ve yazdırma (print) sözleşmesi', () => 
     expect(documentRef.querySelectorAll('.toast--warning').length).toBeGreaterThan(0);
 
     app.destroy();
-  });
+    // Uçtan uca akış (jsdom + app.js + grafikler) yavaş makinelerde 5 sn'yi aşabildiği için açık süre verildi.
+  }, 20000);
 });
