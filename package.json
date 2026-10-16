@@ -3,7 +3,30 @@
   "version": "1.0.0",
   "private": true,
   "description": "Client-Side LLM FinOps & Prompt Cache ROI Analyzer (Zero-Backend, GitHub Pages)",
+  "keywords": [
+    "llm",
+    "finops",
+    "prompt-caching",
+    "token-cost",
+    "cost-calculator",
+    "ocr",
+    "zero-backend",
+    "github-pages"
+  ],
+  "homepage": "https://burakyildizgamedev.github.io/tokencost-web/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BurakYildizGameDev/tokencost-web.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BurakYildizGameDev/tokencost-web/issues"
+  },
+  "license": "MIT",
+  "author": "Burak Yıldız",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node scripts/serve.mjs",
     "test": "vitest run",

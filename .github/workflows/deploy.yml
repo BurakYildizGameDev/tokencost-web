@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   test:
-    name: Vitest (47 faz sözleşmesi)
+    name: Tests
     runs-on: ubuntu-24.04
     steps:
       - name: Depoyu al
@@ -39,7 +39,7 @@ jobs:
         run: npm test
 
   build:
-    name: Pages paketi hazırla
+    name: Build Pages bundle
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -70,7 +70,7 @@ jobs:
           path: ./dist
 
   deploy:
-    name: GitHub Pages'e yayınla
+    name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-24.04
     environment:

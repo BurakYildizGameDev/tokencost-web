@@ -1,196 +1,162 @@
+<div align="center">
+
 # TokenCost FinOps Analyzer
 
-**LLM Kota ve Prompt Cache ROI Analiz Aracı** — %100 tarayıcıda çalışan, sunucusuz (zero-backend) FinOps hesaplayıcı.
-Ekran görüntüsünü, kopyaladığınız konsol tablosunu veya CSV dosyasını verin; önbellek tasarrufunu,
-gerçek faturayı ve kota dağılımını saniyeler içinde görün. **Hiçbir veri cihazınızdan çıkmaz.**
+**See what your LLM usage really costs — and how much prompt caching saves you.**
 
-**Canlı demo:** https://burakyildizgamedev.github.io/tokencost-web/
+Paste a console usage table, drop a screenshot or load a CSV: get the real invoice, the cost you would
+have paid without caching, and per-model quota pressure in seconds. Runs 100% in the browser —
+**your data never leaves your device.**
 
-![TokenCost FinOps Analyzer: örnek konsol verisi yüklenmiş hâliyle özet kartları, model bazlı maliyet dağılımı ve kullanım tablosu](docs/screenshot.png)
+[![CI/CD](https://github.com/BurakYildizGameDev/tokencost-web/actions/workflows/deploy.yml/badge.svg)](https://github.com/BurakYildizGameDev/tokencost-web/actions/workflows/deploy.yml)
+[![Live demo](https://img.shields.io/badge/demo-live-f0b429)](https://burakyildizgamedev.github.io/tokencost-web/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20deps-0-brightgreen)
 
-> Made by Burak Yıldız
+[**Live demo**](https://burakyildizgamedev.github.io/tokencost-web/) ·
+[Features](#features) ·
+[Getting started](#getting-started) ·
+[How costs are calculated](#how-costs-are-calculated) ·
+[Türkçe](README.tr.md)
 
----
+![TokenCost FinOps Analyzer with the sample console data loaded: summary cards, per-model cost breakdown and usage table](docs/screenshot-en.png)
 
-## Vitrin Senaryosu (örnek veriyle deneyin)
+</div>
 
-"Örnek Konsol Verisi Yükle (333.7M Token)" butonuna basın: 3 ekran görüntüsündeki 13 satır
-(4 model: `deepseek-v4.1-flash`, `glm-5.3`, `mimo-v2.6-pro`, `qwen3-vl-30b`) anında tabloya yüklenir.
+## Why
 
-| Metrik | Değer |
+LLM provider consoles show token counts, but rarely answer the questions that matter for the bill:
+
+- How much of my traffic is served from the prompt cache, and what did that save?
+- Which model drives the invoice?
+- What would this month have cost without caching?
+
+TokenCost answers these from whatever you already have — a copied table, a screenshot or an export file —
+without sign-ups, API keys or a backend.
+
+## Features
+
+| | |
 | --- | --- |
-| Toplam token | **333.698.885** (333,7M) |
-| Toplam istek | **4.044** |
-| Önbellek isabeti | **%89,66** |
-| Gerçek fatura (tahmini) | **$13.80** |
-| Önbellek olmasaydı | **$51.76** |
-| Önbellek tasarrufu | **$37.96** (Kâr, %73,34) |
+| **Three ways in** | Paste a table (Ctrl+V), drag & drop screenshots (OCR via Tesseract.js), or drop a CSV/TSV/TXT/JSON/MD file. |
+| **Smart parsing** | Understands console table headers, strips summary rows, de-duplicates overlapping rows from scrolling screenshots and fixes common OCR noise (`O → 0`, `gIm → glm`). |
+| **FinOps engine** | Cache hit rate, real invoice, cost without cache, cache savings and net quota tokens — overall and per model. |
+| **Live pricing** | Prices come from LiteLLM → OpenRouter, cached locally for 24 h, with an offline catalog as a fallback. Provider-prefixed names such as `deepseek-ai/DeepSeek-V4.1-Flash` are resolved through normalisation, aliases and fuzzy matching. |
+| **Editable** | Edit any cell inline (Enter saves, Escape cancels) or override unit prices per model. |
+| **Reports** | Excel-friendly UTF-8 `.csv`, printable `.pdf`, Markdown report for GitHub issues/PRs, and shareable links (`#data=…`) — no server involved. |
+| **5 languages, 3 currencies** | Turkish, English, German, Chinese, Spanish · USD, TRY, EUR. |
+| **Robust file detection** | Files are identified by MIME, magic bytes and extension, so a PNG named `report.txt` still goes to OCR. |
+| **Zero dependencies** | No framework, no chart library, no runtime npm packages. Charts are plain SVG, state is a ~50-line pub/sub store. |
+| **Dark / light theme** | Remembered per device. |
 
-> Bu tablo uygulamadaki yerleşik (çevrimdışı) fiyat kataloğuyla hesaplanmıştır. Canlı sitede fiyatlar
-> LiteLLM/OpenRouter'dan anlık çekildiği için tutarlar (ekran görüntüsündeki gibi) farklı çıkabilir.
+### Supported inputs
 
-## Özellikler
-
-- **Çoklu girdi:** Ctrl+V ile tablo metni yapıştırma, ekran görüntüsü sürükle-bırak (OCR, Tesseract.js),
-  CSV/TXT dosyası bırakma.
-- **Akıllı ayrıştırma:** Türkçe konsol tablosu başlıkları (Zaman / Model / İstek / Toplam Token /
-  Önbelleklenen / Kotaya Yansıyan), özet satırı ayıklama, mükerrer satır tekilleştirme
-  (kaydırmalı ekran görüntülerindeki örtüşmeler çifte sayılmaz), OCR gürültüsü düzeltme (`O → 0`, `gIm → glm`).
-- **FinOps motoru:** önbellek isabet oranı, normalde ödenecek tutar, önbellek tasarrufu (Kâr),
-  net kota tokeni, model bazlı gruplama — hepsi `src/core` içinde saf (pure) fonksiyonlar.
-- **Beş dilde arayüz (Faz 49):** Türkçe (varsayılan), İngilizce, Almanca, Çince ve İspanyolca.
-  Seçim cihazda saklanır (`tokencost_language`), `<html lang>` güncellenir; kartlar, tablo başlıkları,
-  grafik etiketleri ve bildirimler anında çevrilir.
-- **Para birimi göstergesi:** USD (varsayılan), TRY ve EUR. USD'de tek tutar; TRY/EUR'de
-  `$13.80 / ₺503,70` biçiminde ikili gösterim — kartlar, grafikler ve `.csv`/`.pdf` raporları senkron kalır.
-- **Anlık fiyat sorgusu:** "Anlık Fiyat Sorgula" düğmesi yerel önbelleği atlar ve LiteLLM/OpenRouter
-  kaynaklarından fiyatları yeniden çeker; ağ yoksa mevcut katalog korunur ve bilgi bildirimi gösterilir.
-- **Esnek dosya kabulü (Faz 49):** PNG · JPG · JPEG · WEBP · GIF · BMP · TIFF · AVIF · HEIC ·
-  CSV · TSV · TXT · JSON · MD. Uzantı yanlış/eksik olsa bile **ilk baytlara (magic bytes)** bakılır:
-  içeriği PNG olan `gorunuste-metin.txt` görsel sayılır, MIME uyduran metin ise reddedilmez.
-- **Fiyat kataloğu:** önbellek → LiteLLM → OpenRouter → çevrimdışı statik katalog zinciri;
-  model adı normalizasyonu, takma ad (alias) ve bulanık eşleşme sayesinde `deepseek-ai/DeepSeek-V4.1-Flash`
-  gibi sağlayıcı önekli adlar da doğru fiyatlanır. Hücreden birim fiyat düzenlenebilir.
-- **Raporlama:** UTF-8 BOM'lu `.csv` (Excel uyumlu), yazdırılabilir `.pdf` raporu, GitHub Issue/PR için
-  Markdown raporu ve panoya kopyalama; hepsinin altında `Made by Burak Yıldız` imzası.
-- **Paylaşım:** `#data=...` URL hash'i ile sunucu olmadan analiz paylaşımı.
-- **Tema:** Dark/Light tema (cihazda `tokencost_theme` anahtarında saklanır).
-- **Bağımlılık yok:** çalışma zamanında hiçbir npm paketi, framework veya grafik kütüphanesi yok
-  (grafikler saf SVG, tablo/state saf JavaScript).
-
-## Desteklenen Dosya Biçimleri
-
-| Tür | Biçimler | Akış |
+| Type | Formats | Pipeline |
 | --- | --- | --- |
-| Görsel (OCR) | PNG · JPG/JPEG · JFIF · WEBP · GIF · BMP · TIF/TIFF · AVIF · HEIC/HEIF | Tesseract.js (CDN, çevrimiçi gerekir) |
-| Tablo/metin | CSV · TSV · TXT · LOG · JSON · MD | Doğrudan ayrıştırıcı (`src/core/parser.js`) |
+| Image (OCR) | PNG · JPG/JPEG · JFIF · WEBP · GIF · BMP · TIFF · AVIF · HEIC/HEIF | Tesseract.js (loaded from CDN, needs internet) |
+| Table / text | CSV · TSV · TXT · LOG · JSON · MD | Built-in parser (`src/core/parser.js`) |
 
-Karar sırası: **MIME → magic bytes → uzantı**. İlk baytlar tanınırsa uzantı ve MIME yok sayılır
-(`src/core/file-type.js`), böylece ismi `blob`, `image` veya `indir.txt` olan dosyalar da doğru hatta gider.
-Hiçbiri tutmazsa `Desteklenmeyen dosya biçimi (…)` uyarısı gösterilir; içerik okunamazsa
-`Dosya içeriği okunamadı…` mesajı verilir ve uygulama çökmez.
+## Getting started
 
-## Dil ve Para Birimi
+Use it online: **https://burakyildizgamedev.github.io/tokencost-web/** — click **Load sample console data** to see a
+13-row, 333.7M-token example.
 
-| Ayar | Değerler | Varsayılan | Saklandığı yer |
-| --- | --- | --- | --- |
-| Arayüz dili | `tr` · `en` · `de` · `zh` · `es` | `tr` (Türkçe) | `localStorage["tokencost_language"]` |
-| Para birimi | `USD` · `TRY` · `EUR` | `USD` | uygulama durumu (oturum) |
-
-Dil seçildiğinde sözlük, `<html lang>` (`zh → zh-CN`), statik DOM etiketleri (index.html `data-i18n*`)
-ve tablo/kart/grafik metinleri birlikte güncellenir; grafiklerde SVG içi `aria-label`, başlık, tooltip
-ve boş durum metni de sözlükten gelir. Kullanıcıya tek bir bilgi bildirimi gösterilir.
-Sözlük `src/core/i18n.js` içinde saf veri olarak durur; desteklenen beş dilde de **aynı anahtar kümesi**
-bulunur (eksik çeviri testte kırmızıya düşer). Bilinmeyen dil kodunda arayüz sessizce Türkçeye döner.
-
-Para birimi seçili tutar, USD üzerinden hesaplanan faturaya uygulanır (`src/services/currency-service.js`,
-varsayılan kurlar: TRY 34,00 / EUR 0,92). Kur bulunamazsa çökme yerine USD gösterimi korunur.
-
-## Anlık Fiyat Sorgusu
-
-"Anlık Fiyat Sorgula" düğmesi `pricing-service` katmanını `forceRefresh` ile çağırır:
-
-1. Yerel önbellek atlanır, LiteLLM fiyat dosyası ve OpenRouter model listesi denenir.
-2. Başarılıysa kaynak çipi (`Fiyat kataloğu · LiteLLM` vb.) ve tablodaki birim fiyatlar güncellenir.
-3. Ağ yoksa/yanıt geçersizse **mevcut katalog korunur**, düğme tekrar kullanılabilir hâle gelir ve
-   bilgi bildirimi gösterilir (durum bozulmaz).
-
-## Hızlı Başlangıç
-
-ES modülleri `file://` üzerinden yüklenemez; küçük bir statik sunucu yeterlidir:
+Run it locally (Node 18+):
 
 ```bash
-# 1) Depoyu alın
-git clone https://github.com/brakyildiz/tokencost-finops.git
-cd tokencost-finops
-
-# 2) Testleri çalıştırın (49 faz sözleşmesi)
+git clone https://github.com/BurakYildizGameDev/tokencost-web.git
+cd tokencost-web
 npm ci
-npm test
-
-# 3) Geliştirme sunucusunu başlatın (sıfır bağımlılık, Node 18+)
-npm start          # http://localhost:5173
+npm start        # http://localhost:5173
 ```
 
-`npm start`, `scripts/serve.mjs` içindeki bağımlılıksız statik sunucuyu çalıştırır (yalnızca Node
-`node:` modülleri; çalışma zamanı paketi yok). Port doluysa sırayla sonraki boş port denenir ve
-adres konsola yazılır; `PORT=8080 npm start` ile port seçilebilir. Alternatif olarak
-`python -m http.server 8080` veya herhangi bir statik sunucu da kullanılabilir.
+`npm start` runs a dependency-free static server (`scripts/serve.mjs`). ES modules cannot be loaded over
+`file://`, so opening `index.html` directly won't work — any static server (e.g. `python -m http.server`) is fine.
+Use `PORT=8080 npm start` to pick a port; if the port is busy the next free one is used.
 
-OCR (ekran görüntüsü) özelliği Tesseract.js CDN'inden gelir; erişim yoksa metin/CSV akışı sorunsuz çalışır
-(görsel yüklendiğinde kibar bir uyarı gösterilir).
+### Expected input
 
-## Mimari
+One row per model/day with these columns (Turkish and English headers are recognised; tab- or space-separated, `1,234` and `1.234` both work):
 
 ```
-index.html            # Statik iskelet (erişilebilir, SEO meta etiketli)
-styles.css            # Dark/Light tema + @media print PDF stilleri
+Date     Model                 Requests   Total tokens   Cached        Billed
+14 Oct   deepseek-v4.1-flash   2,984      177,254,544    169,521,069   7,733,475
+```
+
+## How costs are calculated
+
+All calculations live in pure functions in `src/core/calculator.js`. Prices are per **1M tokens**.
+
+| Metric | Formula |
+| --- | --- |
+| Cache hit rate | `cached / total` (token-weighted, not an average of row percentages) |
+| Real invoice | `cached × P_cache + billed × (α × P_in + (1 − α) × P_out)`, α = 0.3 input share |
+| Cache savings | `cached × (P_in − P_cache)` |
+| Cost without cache | `real invoice + cache savings` |
+
+When a provider does not publish a cache-read price, 50% of the input price is assumed. When the same model is
+listed by many providers, the canonical entry or a well-known provider is preferred over entries with
+missing or zero prices.
+
+> The live site uses live prices, so its totals differ from the offline catalog. With the built-in offline catalog
+> the sample data comes to **$13.80** real invoice vs **$51.76** without cache (**$37.96** saved, 89.66% hit rate).
+
+## Project structure
+
+```
+index.html              Static shell (accessible, SEO meta tags)
+styles.css              Dark/light theme + print styles for PDF
 src/
-  main.js             # Tarayıcı giriş noktası (initApp)
-  app.js              # Faz 44: orkestratör — tüm katmanları DOM'a bağlar
-  core/               # SAF katman: DOM/window/localStorage/fetch YOK
-    schema.js         #   token kaydı ve fiyat profili modelleri
-    calculator.js     #   maliyet, tasarruf, özet ve gruplama motoru
-    parser.js         #   konsol tablosu ayrıştırıcı + tekilleştirme imzası
-    normalizer.js     #   model adı normalizasyonu, alias, bulanık eşleşme
-    formatter.js      #   Türkçe sayı/para biçimlendirme
-    i18n.js           #   Faz 49: beş dilli sözlük + saf çeviri/ayırıcı yardımcıları
-    file-type.js      #   Faz 49: MIME/uzantı/magic bytes ile dosya türü tespiti
-    demo-data.js      #   örnek (vitrin) veri seti + çevrimdışı fiyat kataloğu
-  ocr/                # OCR hattı (Tesseract enjekte edilir, saf mantık test edilebilir)
-  services/           # fiyat, kur, dışa aktarım (CSV/PDF/Markdown/hash) servisleri
-  ui/                 # store (pub/sub), bileşenler, grafikler, girdi olayları
-scripts/
-  serve.mjs           # ARAÇ: npm start — bağımlılıksız statik geliştirme sunucusu
-tests/                # Vitest: 17 dosya, 348 test (unit + entegrasyon + E2E)
+  main.js               Browser entry point
+  app.js                Orchestrator: wires every layer to the DOM
+  core/                 Pure logic — no DOM, window, localStorage or fetch
+    calculator.js       Cost, savings, summary and grouping
+    parser.js           Console table parser + de-duplication
+    normalizer.js       Model name normalisation, aliases, fuzzy matching
+    schema.js           Token record and pricing profile models
+    i18n.js             Dictionaries for 5 languages
+    file-type.js        MIME / magic bytes / extension detection
+    formatter.js        Number and currency formatting
+    demo-data.js        Sample dataset + offline price catalog
+  ocr/                  OCR pipeline (Tesseract is injected; logic is testable)
+  services/             Pricing, currency, export (CSV/PDF/Markdown/share link)
+  ui/                   Store (pub/sub), table, cards, charts, input handling
+scripts/serve.mjs       Zero-dependency dev server
+tests/                  Vitest + jsdom: unit, integration and end-to-end
 ```
 
-**Katman kuralı:** `src/core` ve `src/ocr` içinde DOM'a dokunulmaz; DOM yalnızca enjekte edilen
-`ownerDocument` / `environment` üzerinden kullanılır. Bu sayede tüm iş mantığı Node üzerinde
-DOM olmadan test edilebilir.
+**Layering rule:** `src/core` and `src/ocr` never touch the DOM; the DOM is only reached through an injected
+`document`/`environment`. That keeps all business logic testable in Node.
 
-## Testler
+## Testing
 
 ```bash
-npm test           # tek seferlik (CI ile aynı komut)
-npm run test:watch # geliştirme sırasında izleme
-npm start          # statik geliştirme sunucusu (http://localhost:5173)
+npm test             # single run, same as CI
+npm run test:watch   # watch mode
 ```
 
-Her faz TDD ile ilerledi (önce kırmızı test, sonra uygulama). E2E testleri ham metinden **$13.80**
-faturaya, `.csv`/`.pdf` çıktısındaki imzaya ve 3 parçalı OCR akışının tekilleştirmesine kadar
-tüm zinciri doğrular. Faz 49 kapsamı ayrıca şunları test eder: diller arası anahtar eşitliği (`i18n.test.js`),
-magic-byte tabanlı dosya tanıma (`file-type.test.js`), dil değişiminin tablo/kart/depo ile birlikte
-uygulanması ve anlık fiyat düğmesinin başarı/başarısızlık yolları (`e2e.test.js`).
-`serve.test.js` ise `npm start` sözleşmesini gerçek HTTP üzerinden doğrular: kök isteğinde
-`index.html`, modül MIME tipi (`text/javascript`), 404/405, gövdesiz `HEAD`, kapalı önbellek ve
-kök dizin dışına çıkan/bozuk kodlamalı yolların reddedilmesi.
+356 tests across 17 files cover the calculator, parser, OCR pipeline, pricing chain, i18n key parity,
+file-type sniffing, exports, the dev server and full end-to-end flows in jsdom.
 
-## Bilinen Sınırlar
+## Deployment
 
-- OCR (ekran görüntüsü) Tesseract.js CDN'ine bağlıdır; çevrimdışıyken metin/CSV akışı çalışmaya devam eder.
-- Kur değerleri statik varsayılanlardır (canlı kur servisi çağrılmaz); karmaşık senaryolar için
-  birim fiyatlar tablodan düzenlenebilir.
-- Çevrilen yüzey: konsol arayüzü (butonlar, bölüm başlıkları, kartlar, tablo başlıkları, bildirimler) ve
-  grafik SVG içi metinler (aria etiketi, başlık, tooltip, boş durum). Dışa aktarılan `.csv`/`.pdf` rapor
-  başlıkları ve OCR ilerleme metinleri şu an Türkçedir; rapor çevirisi sonraki fazın konusudur.
-- Sayı/para biçimlendirmesi tek yerel ayarı kullanır (`1.234,56`); `groupSeparator`/`decimalSeparator`
-  yardımcıları sözlükte hazır ama biçimlendiriciye (`src/core/formatter.js`) henüz bağlanmadı.
-- Model adı çözülemediğinde kullanılan `Bilinmeyen Model` etiketi veri katmanında (`src/core`) sabittir;
-  grafik içi yüzdeler dilden bağımsız olarak `%73` biçiminde yazılır.
-- Anlık fiyat sorgusu ve OCR internet gerektirir; ikisi de başarısızlıkta sessizce son iyi duruma döner.
+`.github/workflows/deploy.yml` runs the test suite on every push and pull request. On `main`, if all tests
+pass, the static files (`index.html`, `styles.css`, `src/`) are published to GitHub Pages.
+**A failing test blocks the deploy.**
 
-## GitHub Pages Dağıtımı
+To deploy your own fork, enable **Settings → Pages → Source: GitHub Actions**.
 
-1. Depoyu GitHub'a gönderin (`main` dalı).
-2. **Settings → Pages → Build and deployment → Source: GitHub Actions** seçin.
-3. `.github/workflows/deploy.yml` her `push` işleminde `npm test` çalıştırır; tüm testler yeşilse
-   statik site Pages'e yayınlanır. **Kırmızı test = yayın yok.**
+## Known limitations
 
-Yayındaki adres: https://burakyildizgamedev.github.io/tokencost-web/
+- OCR and live pricing need an internet connection; without it, text/CSV input and the offline catalog keep working.
+- Exchange rates are static defaults (TRY 34.00, EUR 0.92); unit prices can be edited in the table.
+- Exported `.csv`/`.pdf` report headers, dates in the table and OCR progress messages are currently Turkish only.
+- Number formatting always uses the `1.234,56` style regardless of language.
 
-## Lisans
+## Contributing
 
-MIT — dilediğiniz gibi kullanabilirsiniz.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-<sub>Made by Burak Yıldız</sub>
+## License
+
+[MIT](LICENSE) © Burak Yıldız
