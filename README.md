@@ -4,6 +4,8 @@
 Ekran görüntüsünü, kopyaladığınız konsol tablosunu veya CSV dosyasını verin; önbellek tasarrufunu,
 gerçek faturayı ve kota dağılımını saniyeler içinde görün. **Hiçbir veri cihazınızdan çıkmaz.**
 
+**Canlı demo:** https://burakyildizgamedev.github.io/tokencost-web/
+
 > Made by Burak Yıldız
 
 ---
@@ -179,6 +181,8 @@ kök dizin dışına çıkan/bozuk kodlamalı yolların reddedilmesi.
 2. **Settings → Pages → Build and deployment → Source: GitHub Actions** seçin.
 3. `.github/workflows/deploy.yml` her `push` işleminde `npm test` çalıştırır; tüm testler yeşilse
    statik site Pages'e yayınlanır. **Kırmızı test = yayın yok.**
+
+Yayındaki adres: https://burakyildizgamedev.github.io/tokencost-web/
 
 ## Lisans
 
