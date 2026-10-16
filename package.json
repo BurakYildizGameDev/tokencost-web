@@ -5,6 +5,7 @@
   "description": "Client-Side LLM FinOps & Prompt Cache ROI Analyzer (Zero-Backend, GitHub Pages)",
   "type": "module",
   "scripts": {
+    "start": "node scripts/serve.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
