@@ -6,6 +6,7 @@ import {
   validateTokenConsistency,
   calculateSingleRowCost,
   calculateCacheSavings,
+  aggregateUsageSummaries,
 } from '../src/core/calculator.js';
 
 describe('Faz 3: calculateCacheHitRatio', () => {
@@ -114,5 +115,36 @@ describe('Faz 6: calculateCacheSavings', () => {
   it('cached fiyat uncached fiyattan büyükse negatifi 0 ile sınırlar', () => {
     const result = calculateCacheSavings(1000000, 0.1, 0.2);
     expect(result.savedUSD).toBe(0);
+  });
+});
+
+describe('Faz 7: aggregateUsageSummaries', () => {
+  it('boş dizi için tüm alanlarda 0 döndürür', () => {
+    const summary = aggregateUsageSummaries([]);
+    expect(summary.recordCount).toBe(0);
+    expect(summary.totalCostUSD).toBe(0);
+    expect(summary.overallCacheHitRate).toBe(0);
+  });
+
+  it('satırları toplar ve ağırlıklı genel isabet oranını hesaplar', () => {
+    const rows = [
+      { requests: 341, totalTokens: 30811037, cachedTokens: 29312128, billedTokens: 1498909, cachedCostUSD: 0.41, billedCostUSD: 0.36, totalCostUSD: 0.77, savedUSD: 3.69 },
+      { requests: 100, totalTokens: 5000000, cachedTokens: 1000000, billedTokens: 4000000, cachedCostUSD: 0.014, billedCostUSD: 0.95, totalCostUSD: 0.96, savedUSD: 0.13 },
+    ];
+    const summary = aggregateUsageSummaries(rows);
+    expect(summary.recordCount).toBe(2);
+    expect(summary.totalRequests).toBe(441);
+    expect(summary.totalTokens).toBe(35811037);
+    expect(summary.totalCachedTokens).toBe(30312128);
+    // Ağırlıklı oran: 30312128 / 35811037 = 84.64 (satır yüzdelerinin ortalaması DEĞİL).
+    expect(summary.overallCacheHitRate).toBe(84.64);
+    expect(typeof summary.overallCacheHitRate).toBe('number');
+  });
+
+  it('sayısal alanlar number tipinde kalır ve NaN üretilmez', () => {
+    const summary = aggregateUsageSummaries([{ totalTokens: 1e6, cachedTokens: 5e5 }]);
+    expect(typeof summary.totalCostUSD).toBe('number');
+    expect(Number.isNaN(summary.totalCostUSD)).toBe(false);
+    expect(Number.isNaN(summary.overallCacheHitRate)).toBe(false);
   });
 });

@@ -128,3 +128,58 @@ export function calculateCacheSavings(cachedTokens, uncachedInputCostPerMillion,
 
   return { uncachedCostUSD, cachedCostUSD, savedUSD, savingsPercentage };
 }
+
+/** Boş özet nesnesi. */
+function emptySummary() {
+  return {
+    recordCount: 0,
+    totalRequests: 0,
+    totalTokens: 0,
+    totalCachedTokens: 0,
+    totalBilledTokens: 0,
+    totalCachedCostUSD: 0,
+    totalBilledCostUSD: 0,
+    totalCostUSD: 0,
+    totalSavedUSD: 0,
+    overallCacheHitRate: 0,
+    savingsPercentage: 0,
+  };
+}
+
+/**
+ * Faz 7: Tüm satırları tek geçişte (O(N)) kümülatif olarak toplar.
+ * Genel önbellek oranı ağırlıklıdır (satır yüzdelerinin ortalaması DEĞİL).
+ * @param {object[]} calculatedRecords
+ * @returns {object}
+ */
+export function aggregateUsageSummaries(calculatedRecords = []) {
+  if (!Array.isArray(calculatedRecords) || calculatedRecords.length === 0) {
+    return emptySummary();
+  }
+
+  const acc = calculatedRecords.reduce((summary, record) => {
+    summary.recordCount += 1;
+    summary.totalRequests += Number(record.requests) || 0;
+    summary.totalTokens += Number(record.totalTokens) || 0;
+    summary.totalCachedTokens += Number(record.cachedTokens) || 0;
+    summary.totalBilledTokens += Number(record.billedTokens) || 0;
+    summary.totalCachedCostUSD += Number(record.cachedCostUSD) || 0;
+    summary.totalBilledCostUSD += Number(record.billedCostUSD) || 0;
+    summary.totalCostUSD += Number(record.totalCostUSD) || 0;
+    summary.totalSavedUSD += Number(record.savedUSD) || 0;
+    return summary;
+  }, emptySummary());
+
+  acc.totalCachedCostUSD = round6(acc.totalCachedCostUSD);
+  acc.totalBilledCostUSD = round6(acc.totalBilledCostUSD);
+  acc.totalCostUSD = round6(acc.totalCostUSD);
+  acc.totalSavedUSD = round6(acc.totalSavedUSD);
+  acc.overallCacheHitRate = calculateCacheHitRatio(acc.totalCachedTokens, acc.totalTokens);
+
+  const withoutCacheCost = acc.totalCachedCostUSD + acc.totalSavedUSD;
+  acc.savingsPercentage = withoutCacheCost > 0
+    ? round2((acc.totalSavedUSD / withoutCacheCost) * 100)
+    : 0;
+
+  return acc;
+}
