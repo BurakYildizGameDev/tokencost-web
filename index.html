@@ -3,54 +3,113 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TokenCost FinOps Analyzer — LLM Kota ve Önbellek ROI Hesaplayıcı</title>
+    <title data-i18n="app.docTitle">TokenCost FinOps Analyzer — LLM Kota ve Önbellek ROI Hesaplayıcı</title>
     <meta
       name="description"
-      content="Ekran görüntüsünden veya tablo metninden LLM token kullanımını okuyup önbellek tasarrufunu, aylık faturayı ve FinOps ROI'yi saniyeler içinde hesaplayan sunucusuz (zero-backend) analiz aracı."
+      content="Konsol tablonuzu yapıştırın, ekran görüntüsünü bırakın veya CSV yükleyin: model bazlı LLM faturası, önbellek tasarrufu ve kota baskısı tarayıcıda hesaplanır. Sunucu yok."
     />
     <meta name="color-scheme" content="dark light" />
     <meta name="author" content="Burak Yıldız" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f172a'/%3E%3Cpath d='M8 20l4-8 4 12 4-12 4 8' stroke='%2338bdf8' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='3' fill='%2314181c'/%3E%3Cpath d='M8 21V11h3.4l4.6 6.2 4.6-6.2H24v10h-3v-5.4l-3.4 4.6h-2.2L12 15.6V21z' fill='%23d9a441'/%3E%3C/svg%3E"
     />
-    <!-- OCR yalnızca görsel yüklendiğinde kullanılır; CDN erişilemezse metin/CSV akışı çalışmaya devam eder. -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js" defer></script>
   </head>
   <body>
-    <a class="skip-link no-print" href="#usage-table">İçeriğe geç</a>
+    <a class="skip-link no-print" href="#usage-table" data-i18n="app.skipLink">İçeriğe geç</a>
 
     <main id="app" class="tokencost-app" role="main" aria-label="TokenCost FinOps analiz paneli">
-      <header class="app-header no-print">
-        <h1 class="app-title">TokenCost <span>FinOps Analyzer</span></h1>
-        <p class="app-tagline">
-          Ekran görüntüsünden veya tablo metninden LLM maliyetini ve önbellek ROI'sini hesapla:
-          <strong>%100 tarayıcıda</strong>, sunucu yok, veri cihazdan çıkmaz.
+      <header class="app-header">
+        <div class="app-bar">
+          <div class="app-bar-id">
+            <p class="app-eyebrow" data-i18n="app.eyebrow">FinOps · LLM Token &amp; Önbellek ROI</p>
+            <h1 class="app-title">TokenCost <span data-i18n="app.titleSuffix">FinOps Analyzer</span></h1>
+          </div>
+          <p class="app-meta">
+            <span id="pricing-source-chip" class="meta-item" data-i18n="chip.pricing.unavailable">Fiyat kataloğu yükleniyor</span>
+            <span class="meta-item" data-i18n="chip.privacy">Veri cihazdan çıkmaz</span>
+          </p>
+        </div>
+
+        <p class="app-tagline" data-i18n="app.tagline">
+          Konsol tablonu yapıştır, ekran görüntüsünü bırak ya da CSV yükle:
+          model bazlı fatura, önbellek tasarrufu ve kota baskısı aynı raporda.
+          Sunucu yok, kurulum yok; tüm hesaplama tarayıcıda.
         </p>
 
         <section id="input-panel" class="input-panel no-print" aria-label="Veri girişi">
-          <button id="btn-load-demo" type="button" class="btn-demo">
-            Örnek Konsol Verisi Yükle (333.7M Token)
-          </button>
+          <div class="panel-head">
+            <h2 class="section-title" data-i18n="section.input.title">Veri Girişi</h2>
+            <p class="panel-hint" data-i18n="section.input.hint">Metin, görsel (OCR) veya CSV/TXT — üçü de aynı tabloya eklenir</p>
+          </div>
 
-          <label class="currency-field" for="currency-select">
-            <span>Para birimi</span>
-            <select id="currency-select" class="currency-select" name="currency">
-              <option value="USD">USD</option>
-              <option value="TRY">TRY</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </label>
+          <div class="console-grid">
+            <div class="console-column">
+              <label class="field-label" for="paste-input" data-i18n="input.paste.label">Konsol / tablo metni (Ctrl+V ile yapıştır)</label>
+              <textarea
+                id="paste-input"
+                name="paste-input"
+                class="paste-input"
+                rows="6"
+                spellcheck="false"
+                data-i18n-placeholder="input.paste.placeholder"
+                placeholder="deepseek-v4.1-flash    1.204   98.220.000   88.310.000   9.910.000&#10;glm-5.3                   806   71.480.000   64.120.000   7.360.000&#10;mimo-v2.6-pro             612   54.310.000   48.900.000   5.410.000"
+              ></textarea>
+              <div class="paste-actions">
+                <button id="btn-analyze-text" type="button" class="btn btn--primary" data-i18n="btn.analyze">Analiz Et</button>
+                <button id="btn-clear-text" type="button" class="btn" data-i18n="btn.clear">Alanı Temizle</button>
+                <span class="field-note" data-i18n="input.paste.note">Satır biçimi: model · istek · toplam token · önbelleklenen · faturalı</span>
+              </div>
+            </div>
 
-          <button id="btn-theme-toggle" type="button" class="btn-theme-toggle" aria-pressed="true">
-            Açık Tema
-          </button>
+            <div class="console-column">
+              <label class="field-label" for="file-input" data-i18n="input.file.label">Dosya yükle</label>
+              <div id="drop-zone" class="drop-zone">
+                <p class="drop-title" data-i18n="drop.title">Dosyayı buraya bırak</p>
+                <p class="drop-sub" data-i18n="drop.sub">PNG · JPG · JPEG · WEBP · GIF · BMP · TIFF · AVIF · HEIC · CSV · TSV · TXT · JSON · MD</p>
+                <input
+                  id="file-input"
+                  class="sr-only"
+                  type="file"
+                  multiple
+                  accept=".png,.jpg,.jpeg,.webp,.csv,.txt,.gif,.bmp,.tif,.tiff,.avif,.heic,.heif,.jfif,.tsv,.json,.md,.log,image/*,text/*"
+                />
+                <button id="btn-open-file" type="button" class="btn" data-i18n="btn.chooseFile">Dosya Seç…</button>
+              </div>
+              <p class="field-note" data-i18n="input.file.note">
+                Görseller OCR ile okunur (tesseract.js, çevrimiçi gerekir); CSV/TXT doğrudan ayrıştırılır.
+              </p>
+            </div>
+          </div>
 
-          <p class="input-hint">
-            <strong>Ctrl+V</strong> ile konsol tablonuzu yapıştırın, <strong>ekran görüntülerini</strong>
-            (PNG/JPG/JPEG/WEBP) sürükleyin veya <strong>CSV/TXT</strong> dosyası bırakın.
-          </p>
+          <div class="console-toolbar">
+            <button id="btn-load-demo" type="button" class="btn-demo" data-i18n="btn.loadDemo">Örnek Konsol Verisi Yükle (333.7M Token)</button>
+            <button id="btn-refresh-pricing" type="button" class="btn btn-refresh-pricing" data-i18n="btn.livePricing">Anlık Fiyat Sorgula</button>
+            <div class="toolbar-right">
+              <label class="language-field" for="language-select">
+                <span data-i18n="label.language">Dil</span>
+                <select id="language-select" class="language-select" name="language">
+                  <option value="tr">Türkçe</option>
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                  <option value="zh">中文</option>
+                  <option value="es">Español</option>
+                </select>
+              </label>
+              <label class="currency-field" for="currency-select">
+                <span data-i18n="label.currency">Para birimi</span>
+                <select id="currency-select" class="currency-select" name="currency">
+                  <option value="USD">USD</option>
+                  <option value="TRY">TRY</option>
+                  <option value="EUR">EUR</option>
+                </select>
+              </label>
+              <button id="btn-theme-toggle" type="button" class="btn-theme-toggle" aria-pressed="true">Açık Tema</button>
+            </div>
+          </div>
         </section>
       </header>
 
@@ -63,17 +122,28 @@
       ></div>
 
       <section class="cards-section" aria-label="FinOps özet kartları">
-        <h2 class="section-title">FinOps Özeti</h2>
+        <div class="panel-head">
+          <h2 class="section-title" data-i18n="section.cards.title">FinOps Özeti</h2>
+          <p class="panel-hint" data-i18n="section.cards.hint">Önbelleksiz maliyet · gerçek fatura · tasarruf · kota baskısı</p>
+        </div>
         <div id="finops-cards"></div>
       </section>
 
       <section class="chart-section" aria-label="Model bazlı maliyet dağılımı">
-        <h2 class="section-title">Model Bazlı Maliyet Dağılımı</h2>
+        <div class="panel-head">
+          <h2 class="section-title" data-i18n="section.chart.title">Model Bazlı Maliyet Dağılımı</h2>
+          <p class="panel-hint" data-i18n="section.chart.hint">
+            Halka: toplam faturadaki pay · Çubuk: dolu = gerçek fatura, soluk = önlenen maliyet
+          </p>
+        </div>
         <div id="cost-chart"></div>
       </section>
 
       <section class="table-section" aria-label="Kullanım ve kota tablosu">
-        <h2 class="section-title">Kullanım &amp; Kota Tablosu</h2>
+        <div class="panel-head">
+          <h2 class="section-title" data-i18n="section.table.title">Kullanım &amp; Kota Tablosu</h2>
+          <p class="panel-hint" data-i18n="section.table.hint">Hücreye tıkla → satır içi düzenle (Enter veya dışına tıkla: kaydeder)</p>
+        </div>
         <div id="usage-table"></div>
       </section>
 

@@ -196,4 +196,99 @@ describe('Faz 47: CI/CD, GitHub Pages ve yazdırma (print) sözleşmesi', () => 
     app.destroy();
     expect(app.store.getListenerCount()).toBe(0);
   });
+
+  it('Faz 48: index.html gerçek veri girişi konsolunu taşır (yapıştırma + dosya + bırakma alanı)', () => {
+    const html = readArtifact(INDEX_PATH);
+
+    for (const id of [
+      'id="paste-input"',
+      'id="btn-analyze-text"',
+      'id="btn-clear-text"',
+      'id="drop-zone"',
+      'id="file-input"',
+      'id="btn-open-file"',
+      'id="pricing-source-chip"',
+    ]) {
+      expect(html).toContain(id);
+    }
+
+    // Dosya seçici gerçek bir input'tur: çoklu seçim + kabul edilen uzantılar yazılıdır.
+    expect(html).toContain('<textarea');
+    expect(html).toContain('type="file"');
+    expect(html).toContain('multiple');
+    expect(html).toContain('accept=".png,.jpg,.jpeg,.webp,.csv,.txt');
+    expect(html).toContain('for="paste-input"');
+    expect(html).toContain('for="file-input"');
+  });
+
+  it('Faz 48: styles.css temayı <html> üzerinden tüm sayfaya uygular, yeni konsol/grafik sınıflarını taşır', () => {
+    const css = readArtifact(STYLES_PATH);
+
+    // Açık tema yalnızca uygulama kökünü değil gövdeyi de boyar (data-theme <html>'e de yazılır).
+    expect(css).toContain("html:has(#app[data-theme='light'])");
+    expect(css).toContain("html:has(#app[data-theme='dark'])");
+    expect(css).toContain('color-scheme: light');
+    expect(css).toContain('color-scheme: dark');
+    expect(css).toMatch(/body\s*\{[^}]*background:\s*var\(--bg\)/s);
+
+    // Yeni konsol ve grafik bileşenlerinin stilleri.
+    expect(css).toContain('.paste-input');
+    expect(css).toContain('.drop-zone');
+    expect(css).toContain('.drop-zone.is-dragover');
+    expect(css).toContain('.bar-chart');
+    expect(css).toContain('.donut-center');
+    expect(css).toContain('.chart-grid');
+    expect(css).toContain('.sr-only');
+  });
+
+  it('Faz 48: gerçek sayfada metin analizi, tema devri ve çubuk grafik uçtan uca çalışır', async () => {
+    const { JSDOM } = await import('jsdom');
+    const { initApp } = await import('../src/app.js');
+
+    const dom = new JSDOM(readArtifact(INDEX_PATH), { url: 'https://brakyildiz.github.io/tokencost-finops/' });
+    const documentRef = dom.window.document;
+    const root = documentRef.getElementById('app');
+
+    const memoryStorage = new Map();
+    const app = initApp(root, {
+      fetchFn: async () => { throw new Error('offline'); },
+      storage: {
+        getItem: (key) => (memoryStorage.has(key) ? memoryStorage.get(key) : null),
+        setItem: (key, value) => { memoryStorage.set(key, String(value)); },
+        removeItem: (key) => { memoryStorage.delete(key); },
+      },
+      environment: { document: documentRef },
+      initialHash: '',
+    });
+
+    await app.ready;
+
+    // 1) Kullanıcı gerçekten veri girebilir: metni yapıştır → "Analiz Et" → satır tabloda.
+    const textarea = documentRef.getElementById('paste-input');
+    textarea.value = '14 Eki\tdeepseek-v4.1-flash\t341\t30.811.037\t29.312.128 (%96)\t2.378.273\t0,00';
+    documentRef.getElementById('btn-analyze-text').click();
+
+    expect(app.store.getState().records.length).toBeGreaterThan(0);
+    expect(documentRef.querySelectorAll('#usage-table tbody tr').length).toBeGreaterThan(0);
+    expect(textarea.value).toBe('');
+
+    // 2) Tema yalnızca kök elementte değil <html>'de de güncellenir (tüm sayfa döner).
+    expect(documentRef.documentElement.getAttribute('data-theme')).toBe('dark');
+    documentRef.getElementById('btn-theme-toggle').click();
+    expect(documentRef.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(root.dataset.theme).toBe('light');
+
+    // 3) Grafik bölümü hem halka hem yatay çubuk grafiği taşır; donut ortasında toplam yazar.
+    expect(documentRef.querySelector('#cost-chart svg.donut-chart')).not.toBeNull();
+    expect(documentRef.querySelector('#cost-chart svg.bar-chart')).not.toBeNull();
+    expect(documentRef.querySelector('#cost-chart .donut-center strong')).not.toBeNull();
+
+    // 4) Boş alanda "Analiz Et" kullanıcıyı uyarır, veri eklemez.
+    const before = app.store.getState().records.length;
+    documentRef.getElementById('btn-analyze-text').click();
+    expect(app.store.getState().records).toHaveLength(before);
+    expect(documentRef.querySelectorAll('.toast--warning').length).toBeGreaterThan(0);
+
+    app.destroy();
+  });
 });

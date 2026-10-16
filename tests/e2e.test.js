@@ -3,7 +3,7 @@
 // Faz 43 - 46: Uçtan uca (E2E) senaryo testleri.
 // Faz 43: Örnek konsol veri seti (demo-data) | Faz 44: Uygulama orkestratörü
 // Faz 45: Ham metin -> fatura -> .csv / .pdf akışı | Faz 46: Çoklu görsel OCR + tekilleştirme
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   DEMO_BUTTON_ID,
   DEMO_BUTTON_LABEL,
@@ -21,11 +21,15 @@ import {
 } from '../src/core/demo-data.js';
 import {
   APP_ROOT_CLASS,
+  ANALYZE_TEXT_BUTTON_ID,
   CARDS_CONTAINER_ID,
   CHART_CONTAINER_ID,
   CURRENCY_SELECT_ID,
   DEFAULT_THEME,
   FOOTER_CONTAINER_ID,
+  LANGUAGE_SELECT_ID,
+  LIVE_PRICE_BUTTON_ID,
+  LIVE_PRICE_BUTTON_LABEL,
   PROGRESS_BANNER_ID,
   TABLE_CONTAINER_ID,
   THEME_STORAGE_KEY,
@@ -34,6 +38,7 @@ import {
   initApp,
 } from '../src/app.js';
 import { EXPORT_CSV_BUTTON_ID, EXPORT_PDF_BUTTON_ID, SIGNATURE_TEXT } from '../src/ui/components.js';
+import { LANGUAGE_STORAGE_KEY, LANGUAGES, getMessages, setLanguage } from '../src/core/i18n.js';
 import { parsePastedTableText } from '../src/core/parser.js';
 import { normalizeModelName, resolveModelAlias } from '../src/core/normalizer.js';
 import { aggregateUsageSummaries, groupRecordsByModel } from '../src/core/calculator.js';
@@ -252,6 +257,70 @@ describe('Faz 44: Ana uygulama orkestratörü (initApp)', () => {
     app.setCurrency('EUR');
     expect(app.store.getState().currency).toBe('EUR');
     expect(root.querySelector(`#${CURRENCY_SELECT_ID}`).value).toBe('EUR');
+    expect(root.querySelector('[data-metric="invoice"] .finops-card-value').textContent).toBe('$13.80 / €12,70');
+    expect(root.querySelector('[data-metric="invoice"] .finops-card-label').textContent).toBe('Gerçek Fatura (USD & EUR)');
+  });
+
+  it('"Anlık Fiyat Sorgula" butonu önbelleği atlayıp canlı fiyatları çeker', async () => {
+    const litellmJson = {
+      'canli-model': {
+        input_cost_per_token: 1e-6,
+        output_cost_per_token: 2e-6,
+        cache_read_input_token_cost: 1e-7,
+      },
+    };
+    let fetchCalls = 0;
+    const { root, app } = createOfflineApp({
+      fetchFn: async () => {
+        fetchCalls += 1;
+        return { ok: true, status: 200, json: async () => litellmJson };
+      },
+    });
+    await app.ready;
+
+    const button = root.querySelector(`#${LIVE_PRICE_BUTTON_ID}`);
+    expect(button).not.toBeNull();
+    expect(button.textContent).toBe(LIVE_PRICE_BUTTON_LABEL);
+    expect(button.disabled).toBe(false);
+
+    const result = await app.refreshLivePrices();
+
+    expect(fetchCalls).toBeGreaterThan(0);
+    expect(result.source).toBe('litellm');
+    expect(result.isOfflineFallback).toBe(false);
+    expect(app.store.getState().pricingCatalog['canli-model']).toBeDefined();
+    // Düğme iş bitince yeniden kullanılabilir olur (çift tıklama kilidi açılır).
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe(LIVE_PRICE_BUTTON_LABEL);
+    expect(root.querySelectorAll('.toast--success').length).toBeGreaterThan(0);
+  });
+
+  it('canlı fiyat sorgusu başarısızsa mevcut katalog korunur ve uyarı verir', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    const before = Object.keys(app.store.getState().pricingCatalog).length;
+    const result = await app.refreshLivePrices();
+
+    expect(result.isOfflineFallback).toBe(true);
+    expect(Object.keys(app.store.getState().pricingCatalog).length).toBe(before);
+    expect(root.querySelectorAll('.toast--warning').length).toBeGreaterThan(0);
+    expect(root.querySelector(`#${LIVE_PRICE_BUTTON_ID}`).disabled).toBe(false);
+  });
+
+  it('Faz 49: uzantısı .txt olsa da içeriği PNG olan dosya görsel olarak işlenir (magic bytes)', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01]);
+    const file = new File([pngBytes], 'gorunuste-metin.txt', { type: '' });
+
+    const results = await app.loadFiles([file]);
+
+    // OCR motoru yok → görsel hattı uyarı verir; metin ayrıştırıcı satır eklemez.
+    expect(results[0].records).toEqual([]);
+    expect(app.store.getState().records).toHaveLength(0);
+    expect(root.querySelectorAll('.toast--warning').length).toBe(1);
   });
 
   it('tema değiştirici dark/light geçişini köke ve depoya yazar', async () => {
@@ -520,3 +589,110 @@ describe('Faz 46: Çoklu ekran görüntüsü OCR ve tekilleştirme', () => {
     expect(app.store.getState().records).toHaveLength(3);
   });
 });
+
+describe('Faz 49: Arayüz dili (i18n) uçtan uca', () => {
+  /** Dil testleri modül tekili (singleton) dili değiştirir; sonra varsayılana döner. */
+  afterEach(() => {
+    setLanguage('tr');
+  });
+
+  it('başlangıçta varsayılan dil Türkçedir ve <html lang> güncellenir', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    expect(app.language).toBe('tr');
+    expect(root.querySelector(`#${LANGUAGE_SELECT_ID}`).value).toBe('tr');
+    expect(document.documentElement.lang).toBe('tr');
+
+    const options = Array.from(root.querySelectorAll(`#${LANGUAGE_SELECT_ID} option`));
+    expect(options.map((option) => option.value)).toEqual([...LANGUAGES]);
+    expect(options.map((option) => option.textContent)).toEqual(['Türkçe', 'English', 'Deutsch', '中文', 'Español']);
+  });
+
+  it('setLanguage() düğmeleri, tabloyu ve depoyu yeni dile taşır', async () => {
+    const storage = createFakeStorage();
+    const { root, app } = createOfflineApp({ storage });
+    await app.ready;
+    root.querySelector(`#${DEMO_BUTTON_ID}`).click();
+    expect(root.querySelectorAll(`#${TABLE_CONTAINER_ID} tbody tr`)).toHaveLength(13);
+    // Önyüklemede çevrimdışı fiyat bilgisi bir bilgi bildirimi bırakır; deltayı ölçeriz.
+    const infoBefore = root.querySelectorAll('.toast--info').length;
+
+    const applied = app.setLanguage('en');
+
+    expect(applied).toBe('en');
+    expect(app.language).toBe('en');
+    expect(root.querySelector(`#${LANGUAGE_SELECT_ID}`).value).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
+    expect(storage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');
+    // Statik düğme metni + çizim sırasında çevrilen tablo başlıkları birlikte değişir.
+    expect(root.querySelector(`#${ANALYZE_TEXT_BUTTON_ID}`).textContent).toBe(getMessages('en')['btn.analyze']);
+    expect(root.querySelector(`#${LIVE_PRICE_BUTTON_ID}`).textContent).toBe(getMessages('en')['btn.livePricing']);
+    expect(root.querySelector(`th[data-field="totalTokens"]`).textContent).toBe('Total tokens');
+    // Tablo yeniden kurulsa da veri kaybolmaz.
+    expect(root.querySelectorAll(`#${TABLE_CONTAINER_ID} tbody tr`)).toHaveLength(13);
+    expect(app.store.getState().records).toHaveLength(13);
+    expect(root.querySelectorAll('.toast--info').length).toBe(infoBefore + 1);
+    expect(root.textContent).toContain('Language changed: English');
+  });
+
+  it('dil değişimi FinOps kart etiketlerini ve para birimi etiketini birlikte günceller', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+    root.querySelector(`#${DEMO_BUTTON_ID}`).click();
+
+    app.setCurrency('EUR');
+    expect(root.querySelector('[data-metric="invoice"] .finops-card-label').textContent)
+      .toBe('Gerçek Fatura (USD & EUR)');
+
+    app.setLanguage('de');
+    expect(root.querySelector('[data-metric="invoice"] .finops-card-label').textContent)
+      .toBe(getMessages('de')['card.invoice'].replace('{cur}', 'USD & EUR'));
+    expect(root.querySelector('[data-metric="invoice"] .finops-card-value').textContent)
+      .toBe('$13.80 / €12,70');
+    expect(root.querySelector('[data-metric="withoutCache"] .finops-card-label').textContent)
+      .toBe(getMessages('de')['card.withoutCache']);
+  });
+
+  it('seçili dil depodan okunur (zh → <html lang="zh-CN">)', async () => {
+    const storage = createFakeStorage();
+    storage.setItem(LANGUAGE_STORAGE_KEY, 'zh');
+    const { root, app } = createOfflineApp({ storage });
+    await app.ready;
+
+    expect(app.language).toBe('zh');
+    expect(root.querySelector(`#${LANGUAGE_SELECT_ID}`).value).toBe('zh');
+    expect(document.documentElement.lang).toBe('zh-CN');
+    // Önyüklemede sessiz uygulanır: dil değişimi bildirimi gösterilmez.
+    expect(root.textContent).not.toContain('语言');
+  });
+
+  it('seçici değişimi dili uygular; geçersiz kodda Türkçeye düşer', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    const select = root.querySelector(`#${LANGUAGE_SELECT_ID}`);
+    select.value = 'es';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+    expect(app.language).toBe('es');
+    expect(document.documentElement.lang).toBe('es');
+
+    expect(app.setLanguage('klingon')).toBe('tr');
+    expect(app.language).toBe('tr');
+    expect(select.value).toBe('tr');
+  });
+
+  it('silent seçeneği bildirim göstermeden dili değiştirir', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+    const infoBefore = root.querySelectorAll('.toast--info').length;
+
+    app.setLanguage('en', { silent: true });
+
+    expect(app.language).toBe('en');
+    expect(root.querySelectorAll('.toast--info').length).toBe(infoBefore);
+    expect(root.textContent).not.toContain('Language changed');
+  });
+});
+

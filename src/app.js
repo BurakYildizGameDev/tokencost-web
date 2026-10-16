@@ -5,10 +5,12 @@
 // yerel ES modülleri 404 Not Found verir.
 
 import { createAppStore } from './ui/store.js';
-import { bindInputEvents, filterAcceptedFiles } from './ui/input-handler.js';
+import { bindInputEvents, filterAcceptedFiles, isImageMime, isTextMime } from './ui/input-handler.js';
+import { FILE_KINDS, SUPPORTED_FORMATS_LABEL, detectFileKindFromBytes } from './core/file-type.js';
 import {
   EXPORT_CSV_BUTTON_ID,
   EXPORT_PDF_BUTTON_ID,
+  applyTranslations,
   notifyUnknownModelPrices,
   renderAppFooter,
   renderFinOpsSummaryCards,
@@ -16,7 +18,19 @@ import {
   showNotification,
   updateProgressBanner,
 } from './ui/components.js';
-import { generateModelCostDonutSVG } from './ui/charts.js';
+import { generateModelCostBarsSVG, generateModelCostDonutSVG } from './ui/charts.js';
+import { formatCostDisplay } from './core/formatter.js';
+import {
+  LANGUAGES,
+  LANGUAGE_LABELS,
+  LANGUAGE_STORAGE_KEY,
+  getLanguage,
+  htmlLang,
+  isSupportedLanguage,
+  resolveLanguage,
+  setLanguage,
+  t,
+} from './core/i18n.js';
 import { parsePastedTableText } from './core/parser.js';
 import {
   DEMO_BUTTON_ID,
@@ -50,6 +64,16 @@ export const TOAST_CONTAINER_ID = 'toast-container';
 export const FOOTER_CONTAINER_ID = 'app-footer';
 export const THEME_TOGGLE_ID = 'btn-theme-toggle';
 export const CURRENCY_SELECT_ID = 'currency-select';
+export const LANGUAGE_SELECT_ID = 'language-select';
+
+/** Veri girişi konsolu kimlikleri (index.html statik iskeletiyle birebir hizalı). */
+export const PASTE_INPUT_ID = 'paste-input';
+export const ANALYZE_TEXT_BUTTON_ID = 'btn-analyze-text';
+export const CLEAR_TEXT_BUTTON_ID = 'btn-clear-text';
+export const DROP_ZONE_ID = 'drop-zone';
+export const FILE_INPUT_ID = 'file-input';
+export const OPEN_FILE_BUTTON_ID = 'btn-open-file';
+export const PRICING_SOURCE_CHIP_ID = 'pricing-source-chip';
 
 /** Tema sözleşmesi. */
 export const SUPPORTED_THEMES = Object.freeze(['dark', 'light']);
@@ -60,23 +84,83 @@ export const THEME_LABELS = Object.freeze({ dark: 'Açık Tema', light: 'Koyu Te
 /** Desteklenen para birimleri (kurlar currency-service varsayılanlarından gelir). */
 export const SUPPORTED_CURRENCIES = Object.freeze(['USD', 'TRY', 'EUR']);
 
-/** Düzenlenebilir tabloya kabul edilen görsel uzantıları. */
-export const IMAGE_EXTENSIONS = Object.freeze(['png', 'jpg', 'jpeg', 'webp']);
+/** Düzenlenebilir tabloya kabul edilen görsel uzantıları (Faz 49: HEIC/GIF/BMP/TIFF/AVIF eklendi). */
+export const IMAGE_EXTENSIONS = Object.freeze([
+  'png', 'jpg', 'jpeg', 'jfif', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'avif', 'heic', 'heif',
+]);
+
+/** Canlı fiyat sorgusu düğmesi (Faz 49). */
+export const LIVE_PRICE_BUTTON_ID = 'btn-refresh-pricing';
 
 /** Kullanıcıya gösterilen sabit metinler (test ve UI tek kaynaktan okur). */
 export const CHART_ARIA_LABEL = 'Model bazlı maliyet dağılımı';
+export const BARS_ARIA_LABEL = 'Model başına maliyet karşılaştırması';
+
+/** Fiyat kataloğu kaynağının üst bilgi çipindeki karşılığı (tek kaynak). */
+export const PRICING_SOURCE_LABELS = Object.freeze({
+  cache: 'Fiyat kataloğu · önbellek',
+  litellm: 'Fiyat kataloğu · LiteLLM',
+  openrouter: 'Fiyat kataloğu · OpenRouter',
+  fallback: 'Fiyat kataloğu · çevrimdışı',
+  custom: 'Fiyat kataloğu · özel',
+  unavailable: 'Fiyat kataloğu · yükleniyor',
+});
+
+/** Dosya seçiciye yazılan kabul listesi (index.html ile aynı; Faz 49'da genişletildi). */
+export const ACCEPTED_FILE_ATTRIBUTE = [
+  '.png', '.jpg', '.jpeg', '.webp', '.csv', '.txt',
+  '.gif', '.bmp', '.tif', '.tiff', '.avif', '.heic', '.heif', '.jfif',
+  '.tsv', '.json', '.md', '.log',
+  'image/*', 'text/*',
+].join(',');
+
+/** Sürükleme sırasında bırakma alanına eklenen sınıf (styles.css ile hizalı). */
+export const DROP_ACTIVE_CLASS = 'is-dragover';
 export const CSV_BUTTON_ARIA_LABEL = 'CSV raporunu indir';
 export const PDF_BUTTON_ARIA_LABEL = 'PDF raporu oluştur';
 export const OFFLINE_PRICING_MESSAGE =
   'Fiyat servisine ulaşılamadı; çevrimdışı örnek fiyat kataloğu kullanıldı';
 export const EMPTY_EXPORT_MESSAGE = 'Dışa aktarılacak veri yok; önce tabloya satır yükleyin';
 export const EMPTY_TEXT_MESSAGE = 'Yapıştırılan metinde kullanım tablosu satırı bulunamadı';
-export const REJECTED_FILE_MESSAGE = 'Desteklenmeyen dosya biçimi (PNG, JPG, JPEG, WEBP, CSV, TXT)';
+export const REJECTED_FILE_MESSAGE = `Desteklenmeyen dosya biçimi (${SUPPORTED_FORMATS_LABEL})`;
+export const UNSUPPORTED_CONTENT_MESSAGE =
+  'Dosya içeriği okunamadı; geçerli bir görsel veya tablo metni (CSV/TXT) yükleyin';
+export const EMPTY_PASTE_MESSAGE = 'Önce tablo metnini yapıştırın; ardından "Analiz Et" düğmesine basın';
+export const CLEARED_PASTE_MESSAGE = 'Giriş alanı temizlendi (tablodaki satırlar korunur)';
+
+/** Konsol düğme/etiket metinleri (index.html ve üretilen iskelet aynı metni kullanır). */
+export const ANALYZE_BUTTON_LABEL = 'Analiz Et';
+export const CLEAR_BUTTON_LABEL = 'Alanı Temizle';
+export const OPEN_FILE_BUTTON_LABEL = 'Dosya Seç…';
+export const DONUT_CENTER_LABEL = 'Tahmini fatura';
+export const DONUT_CAPTION = 'Önbellek payı modele göre';
+export const BARS_CAPTION = 'Gerçek fatura / önlenen maliyet (USD)';
 export const OCR_UNAVAILABLE_MESSAGE =
   'OCR motoru bulunamadı; ekran görüntüsü yerine tablo metnini yapıştırın';
 export const DEMO_LOADED_MESSAGE = 'Örnek konsol verisi yüklendi (13 satır, 333.7M token)';
 export const CSV_EXPORTED_MESSAGE = '.CSV raporu indirildi (Made by Burak Yıldız imzalı)';
 export const PDF_EXPORTED_MESSAGE = '.PDF raporu hazırlandı (Made by Burak Yıldız imzalı)';
+
+/** Faz 49: Canlı (ağdan) fiyat sorgulama düğmesi metinleri. */
+export const LIVE_PRICE_BUTTON_LABEL = 'Anlık Fiyat Sorgula';
+export const LIVE_PRICE_LOADING_LABEL = 'Fiyatlar sorgulanıyor…';
+export const LIVE_PRICE_FAILURE_MESSAGE =
+  'Canlı fiyat kaynağına ulaşılamadı; mevcut/çevrimdışı fiyat kataloğu korundu';
+
+/** Canlı fiyat sorgusu başarı bildirimi (model sayısı ile). */
+export function buildLivePriceSuccessMessage(modelCount, source = 'litellm') {
+  const count = Number.isFinite(Number(modelCount)) ? Math.max(0, Math.round(Number(modelCount))) : 0;
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return t('msg.livePricingUpdated', { count, source, time });
+}
+
+/** Faz 49: Reddedilen dosyalar için aktif dilde bildirim metni üretir. */
+export function buildRejectedFileMessage(files) {
+  const list = Array.isArray(files) ? files.filter(Boolean) : [];
+  const names = list.map((file) => (file && file.name ? file.name : '?')).join(', ');
+  return `${t('msg.rejectedFile', { name: names || '?' })} — ${t('msg.rejectedSupported', { supported: SUPPORTED_FORMATS_LABEL })}`;
+}
 
 /** Ortam nesnesini normalize eder; DOM okuma/URL yazma tek noktadan enjekte edilebilir. */
 function resolveEnvironment(options = {}) {
@@ -115,10 +199,71 @@ function normalizeTheme(value) {
 
 /** Dosya görsel mi? (OCR yalnızca görsellerde çalışır; CSV/TXT doğrudan okunur) */
 function isImageFile(file) {
-  const name = file && typeof file.name === 'string' ? file.name.toLowerCase() : '';
-  const type = file && typeof file.type === 'string' ? file.type.toLowerCase() : '';
-  if (type.indexOf('image/') === 0) return true;
+  if (!file) return false;
+  if (isImageMime(file.type)) return true;
+  const name = typeof file.name === 'string' ? file.name.toLowerCase() : '';
   return IMAGE_EXTENSIONS.some((extension) => name.endsWith(`.${extension}`));
+}
+
+/**
+ * Faz 49: Dosyanın ilk baytlarını okur (magic bytes denetimi için).
+ * Önce Blob.slice + arrayBuffer denenir; desteklenmezse FileReader'a düşülür.
+ * Hiçbiri yoksa null döner ve karar MIME/uzantıya bırakılır.
+ */
+async function readFileHeadBytes(file, environment = {}) {
+  if (!file) return null;
+
+  try {
+    if (typeof file.slice === 'function') {
+      const head = file.slice(0, 512);
+      if (head && typeof head.arrayBuffer === 'function') return await head.arrayBuffer();
+    }
+    if (typeof file.arrayBuffer === 'function') return await file.arrayBuffer();
+  } catch {
+    // İkili okuma başarısızsa FileReader yedeğine geçilir.
+  }
+
+  const Reader = environment.FileReader
+    || (typeof globalThis !== 'undefined' ? globalThis.FileReader : null);
+  if (typeof Reader !== 'function') return null;
+
+  return new Promise((resolve) => {
+    try {
+      const reader = new Reader();
+      reader.onload = () => resolve(reader.result || null);
+      reader.onerror = () => resolve(null);
+      reader.readAsArrayBuffer(file);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Faz 49: Kabul edilen bir dosyanın görsel mi, metin mi olduğunu çözer.
+ * Sıra: MIME türü → ilk baytlar (magic bytes) → uzantı. Böylece uzantısı yanlış olan
+ * gerçek bir PNG görsel sayılır (metin sanılıp bozuk ayrıştırılmaz).
+ * @returns {Promise<{ kind: 'image'|'text'|'unknown', format: string }>}
+ */
+async function classifyAcceptedFile(file, environment = {}) {
+  if (isImageMime(file && file.type)) return { kind: FILE_KINDS.IMAGE, format: '' };
+  if (isTextMime(file && file.type)) return { kind: FILE_KINDS.TEXT, format: '' };
+
+  try {
+    const buffer = await readFileHeadBytes(file, environment);
+    if (buffer && buffer.byteLength > 0) {
+      const detected = detectFileKindFromBytes(buffer);
+      if (detected.isImage) return { kind: FILE_KINDS.IMAGE, format: detected.format };
+      if (detected.isText) return { kind: FILE_KINDS.TEXT, format: detected.format };
+      if (detected.kind === FILE_KINDS.UNKNOWN) {
+        return { kind: FILE_KINDS.UNKNOWN, format: detected.format };
+      }
+    }
+  } catch {
+    // Baytlar okunamazsa uzantı sezgisiyle devam edilir.
+  }
+
+  return { kind: isImageFile(file) ? FILE_KINDS.IMAGE : FILE_KINDS.TEXT, format: '' };
 }
 
 /** Dosyayı metne çevirir (FileReader yoksa Blob.text() yedeğine düşer). */
@@ -141,6 +286,17 @@ function readFileAsText(file, environment = {}) {
       reject(error);
     }
   });
+}
+
+/** HTML özel karakterlerini kaçırır (grafik/etiket metinleri güvenle gömülür). */
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[char]);
 }
 
 /** Hata mesajını kullanıcıya gösterilebilir metne çevirir. */
@@ -184,10 +340,32 @@ export function initApp(rootElement, options = {}) {
 
   updateProgressBanner(banner, { step: 'idle', percentage: 0, message: '', isVisible: false });
 
+  // --- Veri girişi konsolu: yapıştırma alanı, dosya seçici, sürükle-bırak hedefi ---
+  // index.html bu elementleri hazır sunar; sunmadığı ortamda (SPA/test) burada üretilir.
+  // Kullanıcı verisini girecek gerçek bir alanı olmadan uygulama "vitrin" gibi kalırdı.
+  const pasteInput = ensureContainer(doc, panel, PASTE_INPUT_ID, 'textarea', 'paste-input');
+  const analyzeButton = ensureContainer(doc, panel, ANALYZE_TEXT_BUTTON_ID, 'button', 'btn btn--primary');
+  analyzeButton.type = 'button';
+  analyzeButton.textContent = t('btn.analyze');
+
+  const clearButton = ensureContainer(doc, panel, CLEAR_TEXT_BUTTON_ID, 'button', 'btn');
+  clearButton.type = 'button';
+  clearButton.textContent = t('btn.clear');
+
+  const dropZone = ensureContainer(doc, panel, DROP_ZONE_ID, 'div', 'drop-zone');
+  const fileInput = ensureContainer(doc, dropZone, FILE_INPUT_ID, 'input', 'sr-only');
+  fileInput.type = 'file';
+  fileInput.multiple = true;
+  if (!fileInput.getAttribute('accept')) fileInput.setAttribute('accept', ACCEPTED_FILE_ATTRIBUTE);
+
+  const openFileButton = ensureContainer(doc, dropZone, OPEN_FILE_BUTTON_ID, 'button', 'btn');
+  openFileButton.type = 'button';
+  openFileButton.textContent = t('btn.chooseFile');
+
   // --- Üst panel kontrolleri ---
   const demoButton = ensureContainer(doc, panel, DEMO_BUTTON_ID, 'button', 'btn-demo no-print');
   demoButton.type = 'button';
-  demoButton.textContent = DEMO_BUTTON_LABEL;
+  demoButton.textContent = t('btn.loadDemo');
 
   const themeButton = ensureContainer(doc, panel, THEME_TOGGLE_ID, 'button', 'btn-theme-toggle no-print');
   themeButton.type = 'button';
@@ -202,6 +380,24 @@ export function initApp(rootElement, options = {}) {
     }
   }
 
+  // Faz 49: "Anlık Fiyat Sorgula" — önbelleği atlayıp canlı fiyat kataloğunu yeniler.
+  const livePriceButton = ensureContainer(doc, panel, LIVE_PRICE_BUTTON_ID, 'button', 'btn-refresh-pricing no-print');
+  livePriceButton.type = 'button';
+  livePriceButton.textContent = t('btn.livePricing');
+  livePriceButton.title = t('btn.livePricing');
+
+  // Faz 49: Arayüz dili seçici (TR/EN/DE/ZH/ES). Seçim localStorage'da saklanır.
+  const languageSelect = ensureContainer(doc, panel, LANGUAGE_SELECT_ID, 'select', 'language-select no-print');
+  if (languageSelect.options && languageSelect.options.length === 0) {
+    for (const code of LANGUAGES) {
+      const option = doc.createElement('option');
+      option.value = code;
+      option.textContent = LANGUAGE_LABELS[code] || code;
+      languageSelect.appendChild(option);
+    }
+  }
+  languageSelect.setAttribute('aria-label', t('label.language'));
+
   // --- Durum yönetimi (offline ilk açılışta demo kataloğu tohum olarak yüklenir) ---
   const store = options.store || createAppStore({
     currency: SUPPORTED_CURRENCIES[0],
@@ -212,6 +408,7 @@ export function initApp(rootElement, options = {}) {
   let theme = normalizeTheme(options.theme || readStoredTheme());
   let pricing = { catalog: {}, source: 'unavailable', isOfflineFallback: false, savedAt: null };
   let lastUnknownKey = '';
+  let isRefreshingPrices = false;
   const toasts = { info: 0, success: 0, warning: 0, error: 0 };
 
   function readStoredTheme() {
@@ -231,6 +428,17 @@ export function initApp(rootElement, options = {}) {
     return toast;
   }
 
+  /** Fiyat kataloğunun kaynağını üst bilgideki çipe yazar (kullanıcı hangi fiyatı gördüğünü bilir). */
+  function updatePricingSourceChip(result) {
+    const chip = doc ? doc.getElementById(PRICING_SOURCE_CHIP_ID) : null;
+    if (!chip) return null;
+
+    const source = result && typeof result.source === 'string' ? result.source : 'unavailable';
+    const label = t(`chip.pricing.${Object.prototype.hasOwnProperty.call(PRICING_SOURCE_LABELS, source) ? source : 'unavailable'}`);
+    if (chip.textContent !== label) chip.textContent = label;
+    return label;
+  }
+
   // --- Altbilgi: imza + .csv/.pdf araç çubuğu (Faz 42 bileşeni) ---
   const footer = renderAppFooter(footerContainer, {
     onExportCSV: () => api.exportCSV(),
@@ -240,19 +448,48 @@ export function initApp(rootElement, options = {}) {
   if (footer.pdfButton) footer.pdfButton.setAttribute('aria-label', PDF_BUTTON_ARIA_LABEL);
 
   // --- Tablo (store'a kendi abone olur, düzenlemeleri geri yazar) ---
-  const table = renderUsageTable(tableContainer, store.getState().calculatedRecords, store);
+  let table = renderUsageTable(tableContainer, store.getState().calculatedRecords, store);
 
-  /** Halka grafiği çizer (harici grafik kütüphanesi YOK, saf SVG). */
-  function renderChart(groupedModels) {
-    const svg = generateModelCostDonutSVG(groupedModels, { ariaLabel: CHART_ARIA_LABEL });
-    chartContainer.innerHTML = svg;
-    return svg;
+  /**
+   * Grafikleri çizer (harici grafik kütüphanesi YOK, saf SVG):
+   * solda fatura payını gösteren halka + ortada toplam, sağda model başına çubuklar.
+   */
+  function renderChart(groupedModels, summary) {
+    const totalUSD = summary && Number.isFinite(Number(summary.totalCostUSD))
+      ? Number(summary.totalCostUSD)
+      : 0;
+
+    const donut = generateModelCostDonutSVG(groupedModels, { ariaLabel: t('chart.donut.aria') });
+    const bars = generateModelCostBarsSVG(groupedModels, { ariaLabel: t('chart.bars.aria') });
+
+    const markup = [
+      '<div class="chart-grid">',
+      '<figure class="chart-figure chart-figure--donut">',
+      '<div class="donut-wrap">',
+      donut,
+      '<div class="donut-center">',
+      `<strong>${escapeHtml(formatCostDisplay(totalUSD))}</strong>`,
+      `<span>${escapeHtml(t('chart.donut.center'))}</span>`,
+      '</div>',
+      '</div>',
+      `<figcaption>${escapeHtml(t('chart.donut.caption'))}</figcaption>`,
+      '</figure>',
+      '<figure class="chart-figure chart-figure--bars">',
+      bars,
+      `<figcaption>${escapeHtml(t('chart.bars.caption', { cur: 'USD' }))}</figcaption>`,
+      '</figure>',
+      '</div>',
+    ].join('');
+
+    chartContainer.innerHTML = markup;
+    return markup;
   }
 
-  /** Tüm türetilmiş görünümleri (kartlar + grafik) günceller. */
+  /** Tüm türetilmiş görünümleri (kartlar + grafikler) günceller. */
   function renderDerived(state) {
-    renderFinOpsSummaryCards(cardsContainer, state.summary, state.currencyRates);
-    renderChart(state.groupedModels);
+    // Faz 49: Seçili para birimi kartlara ve PDF raporuna aynı yerden geçirilir.
+    renderFinOpsSummaryCards(cardsContainer, state.summary, state.currencyRates, state.currency);
+    renderChart(state.groupedModels, state.summary);
     if (currencySelect.value !== state.currency) currencySelect.value = state.currency;
     return state;
   }
@@ -273,24 +510,58 @@ export function initApp(rootElement, options = {}) {
   const inputBinding = bindInputEvents(panel, {
     onText: (text) => { api.loadText(text); },
     onFiles: (files) => { api.loadFiles(files); },
-    onReject: () => notify({ type: 'warning', message: REJECTED_FILE_MESSAGE }),
+    onReject: (files) => notify({ type: 'warning', message: buildRejectedFileMessage(files) }),
     onError: (error) => notify({ type: 'error', message: describeError(error) }),
+    // Sürükleme sırasında bırakma alanı görsel olarak işaretlenir (kullanıcı nereye
+    // bırakacağını görür); olay girdi panelinin tamamını kapsar.
+    onDragStateChange: (isActive) => {
+      if (dropZone && dropZone.classList) {
+        dropZone.classList.toggle(DROP_ACTIVE_CLASS, Boolean(isActive));
+      }
+    },
   });
 
-  // --- Üst panel kontrollerinin olay bağları (onclick/onchange: dinleyici birikmez) ---
+  // --- Üst panel + konsol kontrollerinin olay bağları (onclick/onchange: dinleyici birikmez) ---
   demoButton.onclick = () => api.loadDemoData();
   themeButton.onclick = () => api.toggleTheme();
   currencySelect.onchange = () => api.setCurrency(currencySelect.value);
+  livePriceButton.onclick = () => { api.refreshLivePrices(); };
+  languageSelect.onchange = () => { api.setLanguage(languageSelect.value); };
+
+  analyzeButton.onclick = () => api.analyzePastedText();
+  clearButton.onclick = () => api.clearPasteInput();
+  openFileButton.onclick = () => {
+    if (typeof fileInput.click === 'function') fileInput.click();
+  };
+
+  // Dosya seçici: seçim sonrası girdi sıfırlanır, böylece aynı dosya tekrar seçilebilir.
+  fileInput.onchange = () => {
+    const files = fileInput.files;
+    api.loadFiles(files);
+    try {
+      fileInput.value = '';
+    } catch {
+      // Bazı ortamlar file input değerini sıfırlamaya izin vermez; kritik değil.
+    }
+  };
 
   // --- Tema (Dark / Light) ---
   function applyTheme(next) {
     theme = normalizeTheme(next);
     rootElement.setAttribute('data-theme', theme);
+
+    // Tema yalnızca kök elemente yazılırsa gövde/scrollbar/formlar koyu kalıyordu.
+    // Aynı değer <html> elementine de yazılır: styles.css belirteçleri buradan tüm sayfayı boyar.
+    if (doc && doc.documentElement && typeof doc.documentElement.setAttribute === 'function') {
+      doc.documentElement.setAttribute('data-theme', theme);
+    }
+
     rootElement.classList.toggle('theme-dark', theme === 'dark');
     rootElement.classList.toggle('theme-light', theme === 'light');
-    themeButton.textContent = THEME_LABELS[theme];
+    const themeLabel = t(theme === 'dark' ? 'theme.switchToLight' : 'theme.switchToDark');
+    themeButton.textContent = themeLabel;
     themeButton.setAttribute('aria-pressed', String(theme === 'dark'));
-    themeButton.setAttribute('title', THEME_LABELS[theme]);
+    themeButton.setAttribute('title', themeLabel);
 
     if (storage && typeof storage.setItem === 'function') {
       try {
@@ -349,7 +620,7 @@ export function initApp(rootElement, options = {}) {
     ensureDemoPricing();
     store.clearRecords();
     store.addRecords(getSampleScreenshotDataset());
-    notify({ type: 'success', message: DEMO_LOADED_MESSAGE });
+    notify({ type: 'success', message: t('msg.demoLoaded') });
     return store.getState();
   }
 
@@ -359,7 +630,7 @@ export function initApp(rootElement, options = {}) {
     const parsed = parsePastedTableText(text);
 
     if (parsed.records.length === 0) {
-      notify({ type: 'warning', message: EMPTY_TEXT_MESSAGE });
+      notify({ type: 'warning', message: t('msg.emptyText') });
       return { added: 0, parsed };
     }
 
@@ -370,6 +641,30 @@ export function initApp(rootElement, options = {}) {
     });
 
     return { added: parsed.records.length, parsed };
+  }
+
+  /**
+   * Metin alanındaki konsol tablosunu ayrıştırır ("Analiz Et" düğmesi).
+   * Başarılı ayrıştırmada alan boşaltılır: veri artık tabloda, alan yeniden kullanılabilir.
+   */
+  function analyzePastedText() {
+    const text = pasteInput && typeof pasteInput.value === 'string' ? pasteInput.value : '';
+
+    if (text.trim() === '') {
+      notify({ type: 'warning', message: t('msg.emptyPaste') });
+      return { added: 0, parsed: null };
+    }
+
+    const result = loadText(text);
+    if (result.added > 0 && pasteInput) pasteInput.value = '';
+    return result;
+  }
+
+  /** Giriş alanını boşaltır (tabloya eklenmiş satırlar korunur). */
+  function clearPasteInput() {
+    if (pasteInput) pasteInput.value = '';
+    notify({ type: 'info', message: t('msg.clearedPaste') });
+    return true;
   }
 
   /** OCR yöneticisini çözer: enjekte edilen > global Tesseract. */
@@ -392,7 +687,7 @@ export function initApp(rootElement, options = {}) {
     const manager = resolveOCRManager();
 
     if (!manager) {
-      notify({ type: 'warning', message: OCR_UNAVAILABLE_MESSAGE });
+      notify({ type: 'warning', message: t('msg.ocrUnavailable') });
       return { records: [], skippedDuplicates: 0, errors: [] };
     }
 
@@ -443,11 +738,26 @@ export function initApp(rootElement, options = {}) {
     const list = Array.isArray(files) ? files.filter(Boolean) : [files].filter(Boolean);
     const { accepted, rejected } = filterAcceptedFiles(list);
 
-    if (rejected.length > 0) notify({ type: 'warning', message: REJECTED_FILE_MESSAGE });
+    if (rejected.length > 0) notify({ type: 'warning', message: buildRejectedFileMessage(rejected) });
     if (accepted.length === 0) return [];
 
-    const images = accepted.filter((file) => isImageFile(file));
-    const textFiles = accepted.filter((file) => !isImageFile(file));
+    // Faz 49: Tür kararı MIME türü + ilk baytlar (magic bytes) ile verilir; uzantı son çaredir.
+    // Böylece uzantısı/kimliği bozuk gerçek görseller yanlışlıkla metin sanılmaz.
+    const classified = [];
+    for (const file of accepted) {
+      classified.push({ file, info: await classifyAcceptedFile(file, environment) });
+    }
+
+    const images = classified
+      .filter((item) => item.info.kind === FILE_KINDS.IMAGE)
+      .map((item) => item.file);
+    const textFiles = classified
+      .filter((item) => item.info.kind === FILE_KINDS.TEXT || item.info.kind === FILE_KINDS.TABLE)
+      .map((item) => item.file);
+    const unreadable = classified.filter((item) => item.info.kind === FILE_KINDS.UNKNOWN);
+
+    if (unreadable.length > 0) notify({ type: 'warning', message: UNSUPPORTED_CONTENT_MESSAGE });
+
     const results = [];
 
     for (const file of textFiles) {
@@ -469,20 +779,20 @@ export function initApp(rootElement, options = {}) {
   function exportCSV() {
     const state = store.getState();
     if (state.calculatedRecords.length === 0) {
-      notify({ type: 'warning', message: EMPTY_EXPORT_MESSAGE });
+      notify({ type: 'warning', message: t('msg.emptyExport') });
       return null;
     }
 
     const csv = generateCSVContent(state.calculatedRecords, state.summary);
     const result = downloadCSVFile(csv, DEFAULT_CSV_FILENAME, environment);
-    notify({ type: 'success', message: CSV_EXPORTED_MESSAGE });
+    notify({ type: 'success', message: t('msg.csvExported') });
     return result;
   }
 
   function exportPDF() {
     const state = store.getState();
     if (state.calculatedRecords.length === 0) {
-      notify({ type: 'warning', message: EMPTY_EXPORT_MESSAGE });
+      notify({ type: 'warning', message: t('msg.emptyExport') });
       return null;
     }
 
@@ -493,7 +803,7 @@ export function initApp(rootElement, options = {}) {
       buildCurrencyInfo(state),
     );
     const result = exportToPDF(reportHTML, DEFAULT_PDF_FILENAME, options.pdfGeneratorFn, environment);
-    notify({ type: 'success', message: PDF_EXPORTED_MESSAGE });
+    notify({ type: 'success', message: t('msg.pdfExported') });
     return result;
   }
 
@@ -527,6 +837,7 @@ export function initApp(rootElement, options = {}) {
       });
 
       pricing = result;
+      updatePricingSourceChip(result);
       const current = store.getState();
       store.setState({
         pricingCatalog: applyCustomPriceOverrides(result.catalog, current.customPrices),
@@ -534,7 +845,7 @@ export function initApp(rootElement, options = {}) {
       });
 
       if (result.isOfflineFallback) {
-        notify({ type: 'info', title: 'Çevrimdışı fiyatlar', message: OFFLINE_PRICING_MESSAGE });
+        notify({ type: 'info', title: 'Çevrimdışı fiyatlar', message: t('msg.offlinePricing') });
       }
 
       return result;
@@ -544,8 +855,126 @@ export function initApp(rootElement, options = {}) {
     }
   }
 
+  /** Faz 49: "Anlık Fiyat Sorgula" düğmesini meşgul/hazır durumuna alır. */
+  function setLivePriceButtonBusy(isBusy) {
+    if (!livePriceButton) return;
+    livePriceButton.disabled = Boolean(isBusy);
+    livePriceButton.textContent = isBusy ? t('msg.livePricingRunning') : t('btn.livePricing');
+    if (isBusy) livePriceButton.setAttribute('aria-busy', 'true');
+    else livePriceButton.removeAttribute('aria-busy');
+  }
+
+  /**
+   * Faz 49: Canlı fiyat sorgusu. Taze önbellek atlanır (forceRefresh) ve fiyatlar
+   * LiteLLM/OpenRouter zincirinden yeniden çekilir. Ağ yoksa mevcut katalog korunur.
+   * @returns {Promise<object>} pricing sonucu
+   */
+  async function refreshLivePrices() {
+    if (isRefreshingPrices) return pricing;
+
+    isRefreshingPrices = true;
+    setLivePriceButtonBusy(true);
+
+    try {
+      const result = await loadPricingCatalog({
+        storage,
+        fetchFn: options.fetchFn,
+        fallbackData: DEMO_PRICING_CATALOG,
+        now: options.now,
+        forceRefresh: true,
+      });
+
+      pricing = result;
+      updatePricingSourceChip(result);
+
+      const current = store.getState();
+      const catalog = applyCustomPriceOverrides(result.catalog, current.customPrices);
+      store.setState({ pricingCatalog: catalog, pricingSource: result.source });
+
+      if (result.isOfflineFallback) {
+        notify({ type: 'warning', message: t('msg.livePricingOffline') });
+      } else {
+        notify({ type: 'success', message: buildLivePriceSuccessMessage(Object.keys(catalog).length, result.source) });
+      }
+
+      return result;
+    } catch (error) {
+      notify({ type: 'error', message: describeError(error) });
+      return pricing;
+    } finally {
+      isRefreshingPrices = false;
+      setLivePriceButtonBusy(false);
+    }
+  }
+
+  /** Faz 49: Kaydedilmiş dil tercihini okur (yoksa varsayılan dil). */
+  function readStoredLanguage() {
+    if (!storage || typeof storage.getItem !== 'function') return resolveLanguage(undefined);
+    try {
+      const stored = storage.getItem(LANGUAGE_STORAGE_KEY);
+      return isSupportedLanguage(stored) ? resolveLanguage(stored) : resolveLanguage(undefined);
+    } catch {
+      return resolveLanguage(undefined);
+    }
+  }
+
+  /** Faz 49: Üretilen iskelet düğmelerinin metinlerini aktif dile göre yeniler. */
+  function applyControlLabels() {
+    if (analyzeButton) analyzeButton.textContent = t('btn.analyze');
+    if (clearButton) clearButton.textContent = t('btn.clear');
+    if (openFileButton) openFileButton.textContent = t('btn.chooseFile');
+    if (demoButton) demoButton.textContent = t('btn.loadDemo');
+    if (livePriceButton && !livePriceButton.disabled) livePriceButton.textContent = t('btn.livePricing');
+    if (languageSelect) languageSelect.setAttribute('aria-label', t('label.language'));
+  }
+
+  /**
+   * Faz 49: Arayüz dilini uygular: sözlük + `<html lang>` + statik DOM + depolama.
+   * Üretilen bileşenler `t()` ile çizildiği için tablo iskeleti de yeniden kurulur.
+   * @param {string} code - 'tr' | 'en' | 'de' | 'zh' | 'es' (takma adlar kabul edilir)
+   * @param {{ silent?: boolean }} [options] silent: kullanıcıya bildirim gösterme
+   * @returns {string} Uygulanan dil kodu
+   */
+  function applyLanguage(code, options = {}) {
+    const applied = setLanguage(code);
+
+    try {
+      if (storage && typeof storage.setItem === 'function') {
+        storage.setItem(LANGUAGE_STORAGE_KEY, applied);
+      }
+    } catch {
+      // Gizli mod/kota hatası dil seçimini yalnızca oturuma indirger.
+    }
+
+    if (doc && doc.documentElement) {
+      doc.documentElement.lang = htmlLang(applied);
+    }
+    if (languageSelect && languageSelect.value !== applied) languageSelect.value = applied;
+
+    applyTranslations(doc);
+    applyControlLabels();
+    updatePricingSourceChip(pricing);
+    applyTheme(theme);
+
+    // Tablo başlıkları/butonları çizim sırasında çevrildiği için iskelet tazelenir.
+    table.destroy();
+    tableContainer.innerHTML = '';
+    table = renderUsageTable(tableContainer, store.getState().calculatedRecords, store);
+    renderDerived(store.getState());
+
+    if (!options.silent) {
+      notify({
+        type: 'info',
+        message: t('msg.languageChanged', { language: LANGUAGE_LABELS[applied] || applied }),
+      });
+    }
+
+    return applied;
+  }
+
   // --- İlk çizim ve başlangıç akışı ---
   applyTheme(theme);
+  applyLanguage(readStoredLanguage(), { silent: true });
   renderDerived(store.getState());
   const restoredRecords = restoreFromHash();
   const ready = bootstrapPricing();
@@ -558,6 +987,9 @@ export function initApp(rootElement, options = {}) {
     elements: {
       root: rootElement,
       panel,
+      pasteInput,
+      dropZone,
+      fileInput,
       banner,
       cards: cardsContainer,
       chart: chartContainer,
@@ -565,19 +997,26 @@ export function initApp(rootElement, options = {}) {
       toastRegion: toastContainer,
       footer: footerContainer,
       usageTable: table.table,
+      livePriceButton,
+      languageSelect,
     },
     loadDemoData,
     loadText,
+    analyzePastedText,
+    clearPasteInput,
     loadFiles,
     loadImages,
+    refreshLivePrices,
     exportCSV,
     exportPDF,
     setCurrency,
+    setLanguage: applyLanguage,
     setTheme,
     toggleTheme,
     destroy,
     get theme() { return theme; },
     get pricing() { return pricing; },
+    get language() { return getLanguage(); },
     get currencyInfo() { return buildCurrencyInfo(store.getState()); },
   };
 
