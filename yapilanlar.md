@@ -444,6 +444,129 @@ test dosyası sızıntısı: yok · ./styles.css ve ./src/main.js referansları:
 - ⚠️ `src/main.js` **tarayıcı giriş noktasıdır**: `initApp`'i import anında çağırdığı için düz Node'da yüklenmez (bilinçli tasarım; §6.2 sayımında hariç tutulur).
 
 
+---
+
+## 13. Faz 48 — Kullanıcı geri bildirimi düzeltmeleri (tema kapsamı, gerçek veri girişi, ikinci grafik, arayüz dili)
+
+Dört geri bildirim başlığının tamamı tek fazda kapatıldı.
+
+### 13.1 Tema artık tüm sayfayı boyuyor
+
+- **Kök neden:** `applyTheme` yalnızca `#app` elementine `data-theme` yazıyordu. `styles.css`
+  belirteçleri `:root`/`[data-theme='dark']` üzerinden `<html>`'de koyu kaldığı için açık temada
+  kartlar beyaz, gövde/kaydırma çubuğu/form kontrolleri koyu kalıyordu.
+- **Çözüm:** `applyTheme` aynı değeri `document.documentElement`'e de yazar; belirteçler
+  `html[data-theme='light']` + yedek `html:has(#app[data-theme='light'])` seçicileriyle tanımlanır.
+  Her iki temada `color-scheme` verilir (native form ve kaydırma çubuğu renkleri de devreder).
+
+### 13.2 Gerçek veri girişi konsolu (yalnızca "örnek veri" dönemi bitti)
+
+`index.html` içine gerçek giriş alanları eklendi; tümü `src/app.js` ile bağlanır:
+
+| Alan | Kimlik | İşlev |
+| --- | --- | --- |
+| Yapıştırma alanı | `#paste-input` | Konsol tablosu metni (Ctrl+V); satır biçimi placeholder'da |
+| Analiz düğmesi | `#btn-analyze-text` | Metni ayrıştırır, satırları tabloya ekler, alanı boşaltır |
+| Alanı temizle | `#btn-clear-text` | Girişi boşaltır (tablodaki satırlar korunur) |
+| Bırakma alanı | `#drop-zone` | Sürükleme sırasında `is-dragover` ile vurgulanır |
+| Dosya seçici | `#file-input` + `#btn-open-file` | PNG/JPG/JPEG/WEBP/CSV/TXT, çoklu seçim |
+
+- `bindInputEvents` artık `onDragStateChange` geri çağrısı sunar (dragover/dragleave/drop).
+- Boş alanda "Analiz Et" kullanıcıyı uyarır (`EMPTY_PASTE_MESSAGE`), tabloya satır eklemez.
+- `index.html` olmadan çalışan ortamlarda (SPA/test) bu alanlar `initApp` tarafından üretilir.
+
+### 13.3 İkinci grafik: model başına maliyet çubukları
+
+- `src/ui/charts.js` → `generateModelCostBarsSVG`: saf SVG yatay çubuklar. Çubuk uzunluğu "önbellek
+  olmasaydı ödenecek" tutara göre ölçeklenir; **dolu** parça gerçek fatura, **soluk** parça önlenen
+  maliyettir; sağda fatura tutarı ve tasarruf yüzdesi yazılır.
+- Renk sırası halka grafikle aynı kaynaktan gelir (`CHART_COLORS`): aynı model her iki grafikte aynı renk.
+- Halkanın ortasına toplam tahmini fatura (`.donut-center`) eklendi; iki figür `.chart-grid` ile yan yana.
+
+### 13.4 Arayüz dili: "şablon AI görünümü" yerine FinOps konsolu
+
+- Gradyan başlık, renkli glow, 999px pill butonlar ve yumuşak gölgeli yüzen kartlar kaldırıldı.
+- Yeni dil: grafit yüzeyler, tek oker aksan, mono sayılar, 3px köşe, üstten renk çizgili rapor kartları,
+  mono-uppercase panel başlıkları, yoğun tablo (sticky başlık + sağa hizalı sayılar) ve sürükleme/odak
+  durumları için ölçülü vurgular.
+- Yazdırma sözleşmesi korundu: girdi konsolu `.no-print`; kâğıtta yalnızca kartlar, grafikler, tablo ve
+  `Made by Burak Yıldız` imzası (`.app-signature`) basılır.
+
+### 13.5 Doğrulama
+
+- `npx vitest run` → **285 test / 14 dosya, tamamı yeşil** (Faz 47'deki 274 test + 11 yeni test).
+  Yeni testler: `tests/charts.test.js` (çubuk ölçek/sıralama/renk/boş durum/XSS/determinizm),
+  `tests/deploy.test.js` (konsol iskeleti, tema `<html>` kablolaması, uçtan uca metin analizi),
+  `tests/ui.test.js` (sürükleme durumu geri çağrısı ve hata yalıtımı).
+- jsdom doğrulama betiği (projeye dosya eklemez): demo verisi → 4 kart, halka ortasında `$13.80`,
+  4 halka dilimi + 4 çubuk satırı, 13 tablo satırı; yapıştırılan metin → 14. satır ve alan temiz;
+  tema devri → `<html>` ve `#app` birlikte `light`.
+- Değişen dosyalar: `index.html`, `styles.css`, `src/app.js`, `src/ui/charts.js`,
+  `src/ui/input-handler.js`, `tests/charts.test.js`, `tests/deploy.test.js`, `tests/ui.test.js`.
+
+---
+
+## 14. Faz 49 — Beş kullanıcı geri bildirimi (kur, dosya kabulü, anlık fiyat, beş dil, doküman)
+
+### 14.1 Para birimi dönüşümü: TRY/EUR artık gerçekten dönüşüyor
+
+- **Kök neden:** Kart etiketi `'Gerçek Fatura (USD & TRY)'` sabitiydi ve değer yalnızca USD biçimindeydi;
+  TRY/EUR seçimi etiketi değiştiriyor ama tutarı çevirmiyordu.
+- **Çözüm:** `buildFinOpsInvoiceLabel(currencyCode)` + `buildFinOpsMetricValues(summary, rate, code)` +
+  `finOpsMetricLabel(field, code)` (`src/ui/components.js`). USD → tek tutar; TRY/EUR → `$13.80 / ₺503,70`;
+  bilinmeyen kodda USD gösterimine düşülür (çökme yok). Kartlar etiketi önbelleğe alınır ve
+  `refresh(summary, currencyCode)` ile yerinde güncellenir; `renderDerived` artık `state.currency` geçirir.
+- Varsayılan (`TRY` + Türkçe) davranış bayt bayt korunur; eski testler değişmeden yeşil kaldı.
+
+### 14.2 Görsel yükleme yanlış reddediliyordu
+
+- **Kök neden:** Kabul listesi dardı (`.png/.jpg/.jpeg/.webp/.csv/.txt`) ve karar yalnızca MIME/uzantıya
+  bakıyordu; `.heic`, `.gif`, `.bmp`, `.tiff`, `.avif`, uzantısız/pano kaynaklı görseller reddediliyordu.
+- **Çözüm:** `ACCEPTED_FILE_EXTENSIONS` genişletildi (+`heic/heif/gif/bmp/tif/tiff/avif/jfif/tsv/json/md/log`),
+  `isImageMime`/`isTextMime`/`TEXT_MIME_TYPES` ve MIME → uzantı sırası ile çalışan `isAcceptedFile` eklendi.
+  `index.html` `accept` niteliği ve sürükleme alt metni aynı kaynaktan güncellendi.
+
+### 14.3 Magic bytes: içerik uzantıdan üstündür
+
+- Yeni `src/core/file-type.js` (saf katman): PNG/JPEG/GIF/WEBP/BMP/TIFF/AVIF/HEIC imzaları + CSV/TSV/JSON/MD
+  metin tespiti (`detectFileKindFromBytes`, `detectFormatFromBytes`, `isProbablyText`).
+- `app.js` `readFileHeadBytes` (Blob → ArrayBuffer; eski ortamlar için FileReader yedeği) ilk 4 KB'ı okur ve
+  `classifyAcceptedFile` karar verir: **MIME → magic bytes → uzantı**. Uzantısı `.txt` olan PNG görsel sayılır;
+  hiçbiri tutmazsa `UNSUPPORTED_CONTENT_MESSAGE` ile kibarca uyarılır.
+
+### 14.4 "Anlık Fiyat Sorgula" düğmesi
+
+- `LIVE_PRICE_BUTTON_ID` / `LIVE_PRICE_*` sabitleri, `buildLivePriceSuccessMessage`, `buildRejectedFileMessage`
+  ve `uiInfo.livePriceButton` eklendi; `refreshLivePrices()` + `setLivePriceButtonBusy()` çift tıklamayı kilitler.
+- `pricing-service.loadPricingCatalog` artık `forceRefresh` seçeneği alır: yerel önbellek atlanır,
+  LiteLLM → OpenRouter zinciri yeniden denenir; başarısızlıkta mevcut katalog korunur ve bilgi bildirimi gösterilir.
+
+### 14.5 Beş dilde arayüz (i18n) + doküman
+
+- Yeni `src/core/i18n.js`: `tr` (varsayılan) · `en` · `de` · `zh` · `es` sözlükleri (123 anahtar, beş dilde
+  **aynı küme**), `resolveLanguage` (takma ad/`zh-CN` çözümü), `t`/`translate` (`{yerTutucu}` desteği,
+  eksikte Türkçe yedek, en kötü ihtimalle anahtarın kendisi), `groupSeparator`/`decimalSeparator`, `htmlLang`.
+- `components.js` `t()` ile çiziyor: `USAGE_TABLE_COLUMNS` içinde `labelKey`, `getColumnLabel`, `toastTitleFor`,
+  `applyTranslations` + `TRANSLATABLE_ATTRIBUTES` (`data-i18n`, `data-i18n-placeholder`).
+- `app.js`: `LANGUAGE_SELECT_ID`, `readStoredLanguage`, `applyLanguage` (`tokencost_language` deposu,
+  `<html lang>`, statik DOM, düğme metinleri, tablo iskeletinin yeniden çizimi, seçiliyken tek bilgi bildirimi),
+  önyüklemede `{ silent: true }`. `index.html` tüm sabit metinleri `data-i18n*` ile işaretlendi.
+- `README.md` yeniden yazıldı: desteklenen biçimler tablosu, dil/para birimi sözleşmesi, anlık fiyat akışı,
+  güncel mimari ağacı ve **Bilinen Sınırlar** (rapor/OCR metinleri şimdilik Türkçe, kurlar statik).
+
+### 14.6 Doğrulama
+
+- `npx vitest run` → **336 test / 16 dosya, tamamı yeşil**.
+  Yeni testler: `tests/i18n.test.js` (sözlük eşitliği, yer tutucu bütünlüğü, çözümleme, ayırıcılar),
+  `tests/file-type.test.js` (imza tespiti, uzantı/MIME çelişkisi, metin sınıflandırma),
+  `tests/e2e.test.js` (magic-byte `.txt`, anlık fiyat düğmesinin başarı/başarısızlık yolları,
+  dil değişiminin tablo/kart/depo ile senkron uygulanması, `zh → <html lang="zh-CN">`, `silent` seçeneği);
+  `tests/ui.test.js`, `tests/pricing.test.js`, `tests/charts.test.js` yeni sözleşmelerle genişletildi.
+- Değişen/eklenen dosyalar: `index.html`, `README.md`, `yapilanlar.md`, `src/app.js`, `src/ui/components.js`,
+  `src/ui/input-handler.js`, `src/ui/charts.js`, `src/services/pricing-service.js`, `styles.css`,
+  `src/core/file-type.js` (yeni), `src/core/i18n.js` (yeni), `tests/file-type.test.js` (yeni),
+  `tests/i18n.test.js` (yeni) ve güncellenen test dosyaları.
+
 _Doküman, depodaki gerçek dosya ve commit durumuna göre hazırlanmıştır; tüm sayı ve hash'ler `git log`,
 `npm test`, `python -c "yaml.safe_load(...)"` ve yerel Pages paketi simülasyonu çıktılarından doğrulanmıştır._
 

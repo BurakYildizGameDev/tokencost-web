@@ -31,15 +31,61 @@ gerçek faturayı ve kota dağılımını saniyeler içinde görün. **Hiçbir v
   (kaydırmalı ekran görüntülerindeki örtüşmeler çifte sayılmaz), OCR gürültüsü düzeltme (`O → 0`, `gIm → glm`).
 - **FinOps motoru:** önbellek isabet oranı, normalde ödenecek tutar, önbellek tasarrufu (Kâr),
   net kota tokeni, model bazlı gruplama — hepsi `src/core` içinde saf (pure) fonksiyonlar.
+- **Beş dilde arayüz (Faz 49):** Türkçe (varsayılan), İngilizce, Almanca, Çince ve İspanyolca.
+  Seçim cihazda saklanır (`tokencost_language`), `<html lang>` güncellenir; kartlar, tablo başlıkları,
+  grafik etiketleri ve bildirimler anında çevrilir.
+- **Para birimi göstergesi:** USD (varsayılan), TRY ve EUR. USD'de tek tutar; TRY/EUR'de
+  `$13.80 / ₺503,70` biçiminde ikili gösterim — kartlar, grafikler ve `.csv`/`.pdf` raporları senkron kalır.
+- **Anlık fiyat sorgusu:** "Anlık Fiyat Sorgula" düğmesi yerel önbelleği atlar ve LiteLLM/OpenRouter
+  kaynaklarından fiyatları yeniden çeker; ağ yoksa mevcut katalog korunur ve bilgi bildirimi gösterilir.
+- **Esnek dosya kabulü (Faz 49):** PNG · JPG · JPEG · WEBP · GIF · BMP · TIFF · AVIF · HEIC ·
+  CSV · TSV · TXT · JSON · MD. Uzantı yanlış/eksik olsa bile **ilk baytlara (magic bytes)** bakılır:
+  içeriği PNG olan `gorunuste-metin.txt` görsel sayılır, MIME uyduran metin ise reddedilmez.
 - **Fiyat kataloğu:** önbellek → LiteLLM → OpenRouter → çevrimdışı statik katalog zinciri;
   model adı normalizasyonu, takma ad (alias) ve bulanık eşleşme sayesinde `deepseek-ai/DeepSeek-V4.1-Flash`
   gibi sağlayıcı önekli adlar da doğru fiyatlanır. Hücreden birim fiyat düzenlenebilir.
 - **Raporlama:** UTF-8 BOM'lu `.csv` (Excel uyumlu), yazdırılabilir `.pdf` raporu, GitHub Issue/PR için
   Markdown raporu ve panoya kopyalama; hepsinin altında `Made by Burak Yıldız` imzası.
 - **Paylaşım:** `#data=...` URL hash'i ile sunucu olmadan analiz paylaşımı.
-- **Tema ve para birimi:** Dark/Light tema (cihazda saklanır) ve USD/TRY/EUR seçici.
+- **Tema:** Dark/Light tema (cihazda `tokencost_theme` anahtarında saklanır).
 - **Bağımlılık yok:** çalışma zamanında hiçbir npm paketi, framework veya grafik kütüphanesi yok
   (grafikler saf SVG, tablo/state saf JavaScript).
+
+## Desteklenen Dosya Biçimleri
+
+| Tür | Biçimler | Akış |
+| --- | --- | --- |
+| Görsel (OCR) | PNG · JPG/JPEG · JFIF · WEBP · GIF · BMP · TIF/TIFF · AVIF · HEIC/HEIF | Tesseract.js (CDN, çevrimiçi gerekir) |
+| Tablo/metin | CSV · TSV · TXT · LOG · JSON · MD | Doğrudan ayrıştırıcı (`src/core/parser.js`) |
+
+Karar sırası: **MIME → magic bytes → uzantı**. İlk baytlar tanınırsa uzantı ve MIME yok sayılır
+(`src/core/file-type.js`), böylece ismi `blob`, `image` veya `indir.txt` olan dosyalar da doğru hatta gider.
+Hiçbiri tutmazsa `Desteklenmeyen dosya biçimi (…)` uyarısı gösterilir; içerik okunamazsa
+`Dosya içeriği okunamadı…` mesajı verilir ve uygulama çökmez.
+
+## Dil ve Para Birimi
+
+| Ayar | Değerler | Varsayılan | Saklandığı yer |
+| --- | --- | --- | --- |
+| Arayüz dili | `tr` · `en` · `de` · `zh` · `es` | `tr` (Türkçe) | `localStorage["tokencost_language"]` |
+| Para birimi | `USD` · `TRY` · `EUR` | `USD` | uygulama durumu (oturum) |
+
+Dil seçildiğinde sözlük, `<html lang>` (`zh → zh-CN`), statik DOM etiketleri (index.html `data-i18n*`)
+ve tablo/kart/grafik metinleri birlikte güncellenir; kullanıcıya tek bir bilgi bildirimi gösterilir.
+Sözlük `src/core/i18n.js` içinde saf veri olarak durur; desteklenen beş dilde de **aynı anahtar kümesi**
+bulunur (eksik çeviri testte kırmızıya düşer). Bilinmeyen dil kodunda arayüz sessizce Türkçeye döner.
+
+Para birimi seçili tutar, USD üzerinden hesaplanan faturaya uygulanır (`src/services/currency-service.js`,
+varsayılan kurlar: TRY 34,00 / EUR 0,92). Kur bulunamazsa çökme yerine USD gösterimi korunur.
+
+## Anlık Fiyat Sorgusu
+
+"Anlık Fiyat Sorgula" düğmesi `pricing-service` katmanını `forceRefresh` ile çağırır:
+
+1. Yerel önbellek atlanır, LiteLLM fiyat dosyası ve OpenRouter model listesi denenir.
+2. Başarılıysa kaynak çipi (`Fiyat kataloğu · LiteLLM` vb.) ve tablodaki birim fiyatlar güncellenir.
+3. Ağ yoksa/yanıt geçersizse **mevcut katalog korunur**, düğme tekrar kullanılabilir hâle gelir ve
+   bilgi bildirimi gösterilir (durum bozulmaz).
 
 ## Hızlı Başlangıç
 
@@ -50,7 +96,7 @@ ES modülleri `file://` üzerinden yüklenemez; küçük bir statik sunucu yeter
 git clone https://github.com/brakyildiz/tokencost-finops.git
 cd tokencost-finops
 
-# 2) Testleri çalıştırın (47 faz sözleşmesi)
+# 2) Testleri çalıştırın (49 faz sözleşmesi)
 npm ci
 npm test
 
@@ -76,11 +122,13 @@ src/
     parser.js         #   konsol tablosu ayrıştırıcı + tekilleştirme imzası
     normalizer.js     #   model adı normalizasyonu, alias, bulanık eşleşme
     formatter.js      #   Türkçe sayı/para biçimlendirme
+    i18n.js           #   Faz 49: beş dilli sözlük + saf çeviri/ayırıcı yardımcıları
+    file-type.js      #   Faz 49: MIME/uzantı/magic bytes ile dosya türü tespiti
     demo-data.js      #   örnek (vitrin) veri seti + çevrimdışı fiyat kataloğu
   ocr/                # OCR hattı (Tesseract enjekte edilir, saf mantık test edilebilir)
   services/           # fiyat, kur, dışa aktarım (CSV/PDF/Markdown/hash) servisleri
   ui/                 # store (pub/sub), bileşenler, grafikler, girdi olayları
-tests/                # Vitest: 14 dosya, 270 test (unit + entegrasyon + E2E)
+tests/                # Vitest: 16 dosya, 336 test (unit + entegrasyon + E2E)
 ```
 
 **Katman kuralı:** `src/core` ve `src/ocr` içinde DOM'a dokunulmaz; DOM yalnızca enjekte edilen
@@ -96,7 +144,19 @@ npm run test:watch # geliştirme sırasında izleme
 
 Her faz TDD ile ilerledi (önce kırmızı test, sonra uygulama). E2E testleri ham metinden **$13.80**
 faturaya, `.csv`/`.pdf` çıktısındaki imzaya ve 3 parçalı OCR akışının tekilleştirmesine kadar
-tüm zinciri doğrular.
+tüm zinciri doğrular. Faz 49 kapsamı ayrıca şunları test eder: diller arası anahtar eşitliği (`i18n.test.js`),
+magic-byte tabanlı dosya tanıma (`file-type.test.js`), dil değişiminin tablo/kart/depo ile birlikte
+uygulanması ve anlık fiyat düğmesinin başarı/başarısızlık yolları (`e2e.test.js`).
+
+## Bilinen Sınırlar
+
+- OCR (ekran görüntüsü) Tesseract.js CDN'ine bağlıdır; çevrimdışıyken metin/CSV akışı çalışmaya devam eder.
+- Kur değerleri statik varsayılanlardır (canlı kur servisi çağrılmaz); karmaşık senaryolar için
+  birim fiyatlar tablodan düzenlenebilir.
+- Çevrilen yüzey: konsol arayüzü (butonlar, bölüm başlıkları, kartlar, tablo başlıkları, grafik
+  etiketleri, bildirimler). Dışa aktarılan `.csv`/`.pdf` rapor başlıkları ve OCR ilerleme metinleri
+  şu an Türkçedir; rapor çevirisi sonraki fazın konusudur.
+- Anlık fiyat sorgusu ve OCR internet gerektirir; ikisi de başarısızlıkta sessizce son iyi duruma döner.
 
 ## GitHub Pages Dağıtımı
 
