@@ -567,6 +567,23 @@ Dört geri bildirim başlığının tamamı tek fazda kapatıldı.
   `src/core/file-type.js` (yeni), `src/core/i18n.js` (yeni), `tests/file-type.test.js` (yeni),
   `tests/i18n.test.js` (yeni) ve güncellenen test dosyaları.
 
+### 14.7 Takip: grafik SVG içi metinler de sözlüğe bağlandı
+
+- **Bulunan boşluk:** `src/ui/charts.js` çizim sırasında `aria-label`, başlık, tooltip ve boş durum
+  metinlerini sabit Türkçe yazıyordu; sözlükteki `chart.tooltip`, `chart.bars.title`, `chart.empty`
+  anahtarları tanımlı olduğu hâlde kullanılmıyordu. Sonuç: dil değişince halka/çubuk grafiklerin iç
+  metinleri Türkçe kalıyordu (kart/başlık çevrilirken grafik yarı çevrili durumdaydı).
+- **Çözüm:** `charts.js` artık `t()` kullanır: `chart.donut.aria`, `chart.bars.aria`, `chart.empty`,
+  `chart.bars.title` ve yeni `chart.bars.titleOne` (tek modelde "1 model" — "1 models" gibi hatalı
+  çoğul biçimi önler), `chart.tooltip`. `chart.bars.titleOne` beş dilin tamamına eklendi, anahtar
+  kümesi eşitliği korundu. `options.ariaLabel` verildiğinde sözlük değeri geçersiz kılınır.
+  `BARS_EMPTY_TEXT` geriye dönük uyumluluk için korunur; çıktı sözlükten gelir.
+- `tests/charts.test.js`: yeni `Faz 49` bloğu — Türkçe metinlerin birebir korunması, `en`'de
+  aria/başlık/tooltip/boş durum çevirisi, tekil/çoğul başlık biçimi (`tr`/`de`), `ariaLabel`
+  seçeneğinin sözlükten öncelikli olması; `afterEach` ile `setLanguage('tr')` yapılarak testler
+  arası dil sızıntısı engellenir.
+- `npx vitest run` → **340 test / 16 dosya, tamamı yeşil** (336 + 4 yeni test).
+
 _Doküman, depodaki gerçek dosya ve commit durumuna göre hazırlanmıştır; tüm sayı ve hash'ler `git log`,
 `npm test`, `python -c "yaml.safe_load(...)"` ve yerel Pages paketi simülasyonu çıktılarından doğrulanmıştır._
 

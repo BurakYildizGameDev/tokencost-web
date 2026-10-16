@@ -71,7 +71,8 @@ Hiçbiri tutmazsa `Desteklenmeyen dosya biçimi (…)` uyarısı gösterilir; i�
 | Para birimi | `USD` · `TRY` · `EUR` | `USD` | uygulama durumu (oturum) |
 
 Dil seçildiğinde sözlük, `<html lang>` (`zh → zh-CN`), statik DOM etiketleri (index.html `data-i18n*`)
-ve tablo/kart/grafik metinleri birlikte güncellenir; kullanıcıya tek bir bilgi bildirimi gösterilir.
+ve tablo/kart/grafik metinleri birlikte güncellenir; grafiklerde SVG içi `aria-label`, başlık, tooltip
+ve boş durum metni de sözlükten gelir. Kullanıcıya tek bir bilgi bildirimi gösterilir.
 Sözlük `src/core/i18n.js` içinde saf veri olarak durur; desteklenen beş dilde de **aynı anahtar kümesi**
 bulunur (eksik çeviri testte kırmızıya düşer). Bilinmeyen dil kodunda arayüz sessizce Türkçeye döner.
 
@@ -153,9 +154,13 @@ uygulanması ve anlık fiyat düğmesinin başarı/başarısızlık yolları (`e
 - OCR (ekran görüntüsü) Tesseract.js CDN'ine bağlıdır; çevrimdışıyken metin/CSV akışı çalışmaya devam eder.
 - Kur değerleri statik varsayılanlardır (canlı kur servisi çağrılmaz); karmaşık senaryolar için
   birim fiyatlar tablodan düzenlenebilir.
-- Çevrilen yüzey: konsol arayüzü (butonlar, bölüm başlıkları, kartlar, tablo başlıkları, grafik
-  etiketleri, bildirimler). Dışa aktarılan `.csv`/`.pdf` rapor başlıkları ve OCR ilerleme metinleri
-  şu an Türkçedir; rapor çevirisi sonraki fazın konusudur.
+- Çevrilen yüzey: konsol arayüzü (butonlar, bölüm başlıkları, kartlar, tablo başlıkları, bildirimler) ve
+  grafik SVG içi metinler (aria etiketi, başlık, tooltip, boş durum). Dışa aktarılan `.csv`/`.pdf` rapor
+  başlıkları ve OCR ilerleme metinleri şu an Türkçedir; rapor çevirisi sonraki fazın konusudur.
+- Sayı/para biçimlendirmesi tek yerel ayarı kullanır (`1.234,56`); `groupSeparator`/`decimalSeparator`
+  yardımcıları sözlükte hazır ama biçimlendiriciye (`src/core/formatter.js`) henüz bağlanmadı.
+- Model adı çözülemediğinde kullanılan `Bilinmeyen Model` etiketi veri katmanında (`src/core`) sabittir;
+  grafik içi yüzdeler dilden bağımsız olarak `%73` biçiminde yazılır.
 - Anlık fiyat sorgusu ve OCR internet gerektirir; ikisi de başarısızlıkta sessizce son iyi duruma döner.
 
 ## GitHub Pages Dağıtımı
