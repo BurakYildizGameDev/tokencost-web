@@ -97,11 +97,35 @@ function findCell(container, rowIndex, field) {
 
 describe('Faz 32: isAcceptedFile / filterAcceptedFiles', () => {
   it('png, jpg, jpeg, webp, csv ve txt dosyalarını kabul eder (büyük/küçük harf duyarsız)', () => {
-    expect(ACCEPTED_FILE_EXTENSIONS).toEqual(['png', 'jpg', 'jpeg', 'webp', 'csv', 'txt']);
+    expect(ACCEPTED_FILE_EXTENSIONS.slice(0, 6)).toEqual(['png', 'jpg', 'jpeg', 'webp', 'csv', 'txt']);
     expect(isAcceptedFile(createFakeFile('tablo.png', 'image/png'))).toBe(true);
     expect(isAcceptedFile(createFakeFile('TABLO.PNG', 'image/png'))).toBe(true);
     expect(isAcceptedFile(createFakeFile('veri.csv', 'text/csv'))).toBe(true);
     expect(isAcceptedFile(createFakeFile('veri.txt', 'text/plain'))).toBe(true);
+  });
+
+  it('Faz 49: heic/jfif/gif/bmp/tiff/tsv/json/md dosyalarını da kabul eder (yanlış ret düzeltmesi)', () => {
+    // Telefon fotoğrafı, eski ekran görüntüsü ve modern görseller artık reddedilmez.
+    expect(isAcceptedFile(createFakeFile('IMG_0421.HEIC'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('foto.heif'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('kare.gif'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('eski.bmp'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('tarama.tif'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('tarama.TIFF'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('panorama.avif'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('pano.jfif'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('veri.tsv'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('veri.json'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('notlar.md'))).toBe(true);
+  });
+
+  it('Faz 49: adı/uzantısı bozuk ama türü doğru dosyaları kabul eder (panodan gelen "blob")', () => {
+    // Chrome/Safari panodan gelen görseli "blob"/"image" adıyla ve uzantısız verebilir.
+    expect(isAcceptedFile(createFakeFile('blob', 'image/png'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('image', 'image/jpeg'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('ekran.png', 'image/heic'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('capture', 'text/csv'))).toBe(true);
+    expect(isAcceptedFile(createFakeFile('data', 'application/json'))).toBe(true);
   });
 
   it('exe, zip ve uzantısız dosyaları reddeder', () => {
@@ -116,9 +140,10 @@ describe('Faz 32: isAcceptedFile / filterAcceptedFiles', () => {
       createFakeFile('a.png'),
       createFakeFile('b.exe'),
       createFakeFile('c.csv'),
+      createFakeFile('d.heic'),
     ]);
 
-    expect(accepted.map((file) => file.name)).toEqual(['a.png', 'c.csv']);
+    expect(accepted.map((file) => file.name)).toEqual(['a.png', 'c.csv', 'd.heic']);
     expect(rejected.map((file) => file.name)).toEqual(['b.exe']);
   });
 });
@@ -253,6 +278,31 @@ describe('Faz 32: bindInputEvents - sürükle-bırak', () => {
     container.dispatchEvent(createDragEvent('drop', { files: [createFakeFile('b.png')] }));
 
     expect(onFiles).not.toHaveBeenCalled();
+  });
+
+  it('Faz 48: sürükleme durumunu onDragStateChange ile bildirir (bırakma alanı vurgusu)', () => {
+    const container = createContainer();
+    const states = [];
+    bindInputEvents(container, { onDragStateChange: (isActive) => states.push(isActive) });
+
+    container.dispatchEvent(createDragEvent('dragover', { files: [createFakeFile('a.png')] }));
+    container.dispatchEvent(new window.Event('dragleave', { bubbles: true }));
+    container.dispatchEvent(createDragEvent('drop', { files: [createFakeFile('a.png')] }));
+
+    expect(states).toEqual([true, false, false]);
+  });
+
+  it('Faz 48: geri çağrı hata fırlatsa bile dinleyiciler sağlam kalır (onError bildirilir)', () => {
+    const container = createContainer();
+    const onError = vi.fn();
+    bindInputEvents(container, {
+      onDragStateChange: () => { throw new Error('boom'); },
+      onError,
+    });
+
+    container.dispatchEvent(createDragEvent('dragover', { files: [createFakeFile('a.png')] }));
+
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -700,7 +750,6 @@ describe('Faz 37: renderFinOpsSummaryCards', () => {
     const quota = container.querySelector('[data-metric="quota"]');
     expect(quota.querySelector('.finops-card-value').textContent).toBe('4.044 İstek | 28,5M Net Token');
   });
-
 
   it('boş/geçersiz özet verildiğinde çökmeden sıfır değerleri gösterir', () => {
     for (const input of [undefined, null, {}]) {

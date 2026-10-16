@@ -2,11 +2,44 @@
 // Faz 32: Çoklu girdi alanı — Ctrl+V (pano) ve sürükle-bırak dinleyicileri.
 // KURAL: Element enjekte edilir (containerEl); global document/window'a doğrudan bağımlılık yok.
 
-/** Kabul edilen dosya uzantıları (küçük harf, nokta yok). */
-export const ACCEPTED_FILE_EXTENSIONS = Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'csv', 'txt']);
+/**
+ * Kabul edilen dosya uzantıları (küçük harf, nokta yok).
+ * Faz 49 düzeltmesi: Telefon/kamera fotoğrafları (.heic/.heif), eski ekran görüntüleri
+ * (.gif/.bmp/.tif/.tiff), modern görseller (.avif) ve panodan düşen .jfif dosyaları da
+ * kabul edilir. Aksi halde geçerli görseller "desteklenmeyen biçim" diye reddediliyordu.
+ */
+export const ACCEPTED_FILE_EXTENSIONS = Object.freeze([
+  'png', 'jpg', 'jpeg', 'webp', 'csv', 'txt',
+  'gif', 'bmp', 'tif', 'tiff', 'avif', 'heic', 'heif', 'jfif',
+  'tsv', 'json', 'md', 'log',
+]);
+
+/** Metin/tablo sayılan (text/* dışındaki) MIME türleri. */
+export const TEXT_MIME_TYPES = Object.freeze([
+  'application/json',
+  'application/ld+json',
+  'application/x-ndjson',
+  'application/csv',
+  'application/tsv',
+  'application/markdown',
+  'application/vnd.ms-excel',
+]);
 
 /** Pano öğelerinde resim tanıma öneki. */
 const IMAGE_MIME_PREFIX = 'image/';
+
+/** MIME türü görsel mi? (adı/uzantısı bozuk dosyalarda tek güvenilir sinyal) */
+export function isImageMime(mimeType) {
+  return String(mimeType === undefined || mimeType === null ? '' : mimeType)
+    .toLowerCase()
+    .startsWith(IMAGE_MIME_PREFIX);
+}
+
+/** MIME türü metin/tablo mu? */
+export function isTextMime(mimeType) {
+  const mime = String(mimeType === undefined || mimeType === null ? '' : mimeType).toLowerCase();
+  return mime.startsWith('text/') || TEXT_MIME_TYPES.includes(mime);
+}
 
 /** Dosya adından uzantıyı (küçük harf) çıkarır. */
 function getFileExtension(fileName) {
@@ -17,12 +50,18 @@ function getFileExtension(fileName) {
 }
 
 /**
- * Faz 32: Dosyanın kabul edilebilir uzantıda olup olmadığını söyler.
+ * Faz 32 / Faz 49: Dosyanın kabul edilebilir olup olmadığını söyler.
+ * Öncelik sırası: MIME türü → bilinen uzantı. Uzantısız/uzantısı bozuk ama türü
+ * doğru olan dosyalar (panodan gelen "blob", telefon fotoğrafı) artık reddedilmez.
  * @param {File|object} file
  * @returns {boolean}
  */
 export function isAcceptedFile(file) {
-  if (!file || typeof file.name !== 'string') return false;
+  if (!file) return false;
+
+  if (isImageMime(file.type) || isTextMime(file.type)) return true;
+
+  if (typeof file.name !== 'string') return false;
   return ACCEPTED_FILE_EXTENSIONS.includes(getFileExtension(file.name));
 }
 
@@ -95,7 +134,8 @@ function collectPasteFiles(clipboardData) {
 /**
  * Faz 32: Kapsayıcı elemente sürükle-bırak ve sayfaya Ctrl+V (paste) dinleyicisi bağlar.
  * @param {HTMLElement} containerEl
- * @param {{ onFiles?: Function, onText?: Function, onReject?: Function, onError?: Function }} [callbacks]
+ * @param {{ onFiles?: Function, onText?: Function, onReject?: Function, onError?: Function, onDragStateChange?: Function }} [callbacks]
+ *   onDragStateChange(isActive): sürükleme başladığında/bittiğinde çağrılır (bırakma alanı vurgusu).
  * @returns {{ destroy: Function }}
  */
 export function bindInputEvents(containerEl, callbacks = {}) {
@@ -104,7 +144,7 @@ export function bindInputEvents(containerEl, callbacks = {}) {
   }
 
   const win = resolveWindow(containerEl);
-  const { onFiles, onText, onReject, onError } = callbacks;
+  const { onFiles, onText, onReject, onError, onDragStateChange } = callbacks;
 
   /** Geri çağrı hatalarını yutar; uygulama akışı bozulmaz. */
   function safeCall(callback, payload) {
@@ -139,13 +179,33 @@ export function bindInputEvents(containerEl, callbacks = {}) {
     if (typeof text === 'string' && text.trim() !== '') safeCall(onText, text);
   }
 
+  /** Sürükleme durumunu (bırakma alanı vurgusu) güvenli biçimde bildirir. */
+  function setDragState(isActive) {
+    safeCall(onDragStateChange, Boolean(isActive));
+  }
+
+  /** Sürüklenen içerik dosya mı? Bilgi yoksa dosya kabul edilir (varsayılan davranış). */
+  function isFileDrag(event) {
+    const types = event && event.dataTransfer ? event.dataTransfer.types : null;
+    if (!types) return true;
+    if (typeof types.includes === 'function') return types.includes('Files');
+    if (typeof types.length === 'number') return Array.from(types).includes('Files');
+    return true;
+  }
+
   function handleDragOver(event) {
     // Varsayılanı engellemezsek tarayıcı dosyayı yeni sekmede açar.
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    if (isFileDrag(event)) setDragState(true);
+  }
+
+  function handleDragLeave() {
+    setDragState(false);
   }
 
   function handleDrop(event) {
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    setDragState(false);
 
     const dataTransfer = event ? event.dataTransfer : null;
     const files = toFileArray(dataTransfer && dataTransfer.files);
@@ -162,12 +222,14 @@ export function bindInputEvents(containerEl, callbacks = {}) {
 
   win.addEventListener('paste', handlePaste);
   containerEl.addEventListener('dragover', handleDragOver);
+  containerEl.addEventListener('dragleave', handleDragLeave);
   containerEl.addEventListener('drop', handleDrop);
 
   return {
     destroy() {
       win.removeEventListener('paste', handlePaste);
       containerEl.removeEventListener('dragover', handleDragOver);
+      containerEl.removeEventListener('dragleave', handleDragLeave);
       containerEl.removeEventListener('drop', handleDrop);
     },
   };
