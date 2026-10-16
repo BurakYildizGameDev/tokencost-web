@@ -6,6 +6,8 @@ gerçek faturayı ve kota dağılımını saniyeler içinde görün. **Hiçbir v
 
 **Canlı demo:** https://burakyildizgamedev.github.io/tokencost-web/
 
+![TokenCost FinOps Analyzer: örnek konsol verisi yüklenmiş hâliyle özet kartları, model bazlı maliyet dağılımı ve kullanım tablosu](docs/screenshot.png)
+
 > Made by Burak Yıldız
 
 ---
@@ -23,6 +25,9 @@ gerçek faturayı ve kota dağılımını saniyeler içinde görün. **Hiçbir v
 | Gerçek fatura (tahmini) | **$13.80** |
 | Önbellek olmasaydı | **$51.76** |
 | Önbellek tasarrufu | **$37.96** (Kâr, %73,34) |
+
+> Bu tablo uygulamadaki yerleşik (çevrimdışı) fiyat kataloğuyla hesaplanmıştır. Canlı sitede fiyatlar
+> LiteLLM/OpenRouter'dan anlık çekildiği için tutarlar (ekran görüntüsündeki gibi) farklı çıkabilir.
 
 ## Özellikler
 
