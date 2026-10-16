@@ -583,8 +583,9 @@ export function buildFinOpsMetricValues(summary, currencyRate, currencyCode = 'T
   const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
   const savedUSD = num(source.totalSavedUSD);
-  const withoutCacheUSD = num(source.totalCachedCostUSD) + savedUSD;
   const invoiceUSD = num(source.totalCostUSD);
+  // Önbelleksiz fatura = gerçek fatura (önbellekli + faturalı) + önbelleğin kazandırdığı tutar.
+  const withoutCacheUSD = invoiceUSD + savedUSD;
   const hitRate = Math.round(num(source.overallCacheHitRate));
   const requests = Math.round(num(source.totalRequests));
   const netTokens = Math.round(num(source.totalBilledTokens) || num(source.totalTokens));

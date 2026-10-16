@@ -330,6 +330,29 @@ describe('Tarama düzeltmeleri: model adı çözümleme ve güvenli özel fiyatl
     expect(resolveCatalogKeyForModel('glm-5.3', {})).toBeNull();
   });
 
+  it('resolveCatalogKeyForModel aynı modelin çok sağlayıcılı kopyalarında bozuk fiyatlı girdiyi seçmez', () => {
+    const profile = (modelId, cached, uncached, output) => createPricingProfile({
+      modelId,
+      cachedInputCostPerMillion: cached,
+      uncachedInputCostPerMillion: uncached,
+      outputCostPerMillion: output,
+      source: 'litellm',
+    });
+    // Canlı LiteLLM'deki gerçek örüntü: önce gelen az bilinen sağlayıcı önbellek fiyatını 0 bildirir.
+    const catalog = {
+      'coralbricks/deepseek-v4.1-flash': profile('coralbricks/deepseek-v4.1-flash', 0, 0.01, 1.2),
+      'inferenceapis/deepseek-v4.1-flash': profile('inferenceapis/deepseek-v4.1-flash', 0.01, 0.4, 1.6),
+      'together_ai/deepseek-ai/DeepSeek-V4.1-Flash': profile('together_ai/deepseek-ai/DeepSeek-V4.1-Flash', 0.006, 0.3, 1.2),
+    };
+
+    expect(resolveCatalogKeyForModel('deepseek-ai/DeepSeek-V4.1-Flash', catalog))
+      .toBe('together_ai/deepseek-ai/DeepSeek-V4.1-Flash');
+
+    // Sağlayıcısız kanonik anahtar varsa her zaman o tercih edilir.
+    const withCanonical = { ...catalog, 'deepseek-v4.1-flash': profile('deepseek-v4.1-flash', 0.006, 0.3, 1.2) };
+    expect(resolveCatalogKeyForModel('deepseek-ai/DeepSeek-V4.1-Flash', withCanonical)).toBe('deepseek-v4.1-flash');
+  });
+
   it('katalog dışı modele kısmi özel fiyat verildiğinde store çökmez (source: custom)', () => {
     const store = createAppStore({ pricingCatalog: createTestCatalog() });
     store.addRecords([createTestRecord()]);

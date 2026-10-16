@@ -799,6 +799,20 @@ describe('Faz 37: renderFinOpsSummaryCards', () => {
     expect(quota.querySelector('.finops-card-value').textContent).toBe('4.044 İstek | 28,5M Net Token');
   });
 
+  it('"Normalde Ödenecek" faturalı token maliyetini de içerir ve gerçek faturadan küçük olamaz', () => {
+    const values = buildFinOpsMetricValues({
+      ...createSummary(),
+      totalCachedCostUSD: 4.19,
+      totalBilledCostUSD: 9.61,
+      totalCostUSD: 13.8,
+      totalSavedUSD: 37.96,
+    }, 1, 'USD');
+
+    // 13.80 (gerçek fatura) + 37.96 (önbellek tasarrufu) = 51.76
+    expect(values.withoutCache).toBe('$51.76');
+    expect(values.invoice).toBe('$13.80');
+  });
+
   it('seçili para birimi kart değerini ve etiketini değiştirir (USD/TRY/EUR)', () => {
     const container = createContainer();
     const rates = { TRY: 36.5, EUR: 0.92 };

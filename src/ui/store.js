@@ -86,17 +86,51 @@ function createFallbackProfile(modelId) {
   });
 }
 
+/** Aynı model birden çok sağlayıcıda listelendiğinde tercih edilen (resmî/büyük) sağlayıcı önekleri. */
+const PREFERRED_PROVIDER_PREFIXES = Object.freeze([
+  'openai', 'anthropic', 'gemini', 'vertex_ai', 'deepseek', 'zai', 'mistral', 'xai', 'moonshot',
+  'dashscope', 'together_ai', 'fireworks_ai', 'azure_ai', 'bedrock', 'groq', 'deepinfra',
+]);
+
+/**
+ * Normalize adı çakışan katalog girdilerini sıralar (düşük puan = daha güvenilir).
+ * Önceliği sırasıyla: sağlayıcısız kanonik anahtar → bilinen sağlayıcı → diğerleri;
+ * girdi fiyatı olmayan veya önbellek fiyatı açıkça 0 olan (bozuk/eksik) girdiler en sona düşer.
+ */
+function rankCatalogEntry(key, profile) {
+  let score = 0;
+  const slash = key.indexOf('/');
+  if (slash !== -1) {
+    const provider = key.slice(0, slash).toLowerCase();
+    score += PREFERRED_PROVIDER_PREFIXES.includes(provider) ? 1 : 2;
+  }
+
+  if (!profile || typeof profile !== 'object') return score + 8;
+  const uncached = Number(profile.uncachedInputCostPerMillion) || 0;
+  const cached = Number(profile.cachedInputCostPerMillion) || 0;
+  if (uncached <= 0) score += 8;
+  else if (cached <= 0 && profile.source !== 'custom' && !profile.isCacheEstimated) score += 4;
+  return score;
+}
+
 /**
  * Katalog anahtarlarının normalize edilmiş karşılıklarına bakan indeks üretir.
  * Örn: 'deepseek-ai/DeepSeek-Chat' → 'deepseek-chat'.
+ * Çakışmada en güvenilir girdi seçilir (bkz. rankCatalogEntry); eşitlikte ilk gelen korunur.
  * @param {object} catalog
  * @returns {Map<string, string>}
  */
 function buildNormalizedCatalogIndex(catalog) {
   const index = new Map();
+  const ranks = new Map();
   for (const key of Object.keys(catalog || {})) {
     const normalized = normalizeModelName(key);
-    if (normalized !== '' && !index.has(normalized)) index.set(normalized, key);
+    if (normalized === '') continue;
+    const rank = rankCatalogEntry(key, catalog[key]);
+    if (!index.has(normalized) || rank < ranks.get(normalized)) {
+      index.set(normalized, key);
+      ranks.set(normalized, rank);
+    }
   }
   return index;
 }
