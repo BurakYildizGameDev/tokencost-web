@@ -7,6 +7,7 @@ import {
   calculateSingleRowCost,
   calculateCacheSavings,
   aggregateUsageSummaries,
+  groupRecordsByModel,
 } from '../src/core/calculator.js';
 
 describe('Faz 3: calculateCacheHitRatio', () => {
@@ -146,5 +147,32 @@ describe('Faz 7: aggregateUsageSummaries', () => {
     expect(typeof summary.totalCostUSD).toBe('number');
     expect(Number.isNaN(summary.totalCostUSD)).toBe(false);
     expect(Number.isNaN(summary.overallCacheHitRate)).toBe(false);
+  });
+});
+
+describe('Faz 8: groupRecordsByModel', () => {
+  it('boş girdi için boş dizi döndürür', () => {
+    expect(groupRecordsByModel([])).toEqual([]);
+  });
+
+  it('kayıtları modele göre gruplar ve her grup için özet üretir', () => {
+    const rows = [
+      { model: 'deepseek-v4.1-flash', totalTokens: 100, cachedTokens: 50, totalCostUSD: 1 },
+      { model: 'deepseek-v4.1-flash', totalTokens: 200, cachedTokens: 100, totalCostUSD: 2 },
+      { model: 'glm-5.3', totalTokens: 50, cachedTokens: 0, totalCostUSD: 0.5 },
+    ];
+    const groups = groupRecordsByModel(rows);
+    expect(groups).toHaveLength(2);
+    const deepseek = groups.find((g) => g.model === 'deepseek-v4.1-flash');
+    expect(deepseek.summary.recordCount).toBe(2);
+    expect(deepseek.summary.totalTokens).toBe(300);
+    expect(deepseek.summary.totalCostUSD).toBe(3);
+    const glm = groups.find((g) => g.model === 'glm-5.3');
+    expect(glm.summary.recordCount).toBe(1);
+  });
+
+  it('model adı boşsa "Bilinmeyen Model" altında toplar', () => {
+    const groups = groupRecordsByModel([{ totalTokens: 10, cachedTokens: 0 }]);
+    expect(groups[0].model).toBe('Bilinmeyen Model');
   });
 });

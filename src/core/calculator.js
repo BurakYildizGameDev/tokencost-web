@@ -183,3 +183,28 @@ export function aggregateUsageSummaries(calculatedRecords = []) {
 
   return acc;
 }
+
+/**
+ * Faz 8: Kayıtları model adına göre gruplayıp her grup için özet üretir.
+ * @param {object[]} calculatedRecords
+ * @returns {Array<{ model: string, summary: object }>}
+ */
+export function groupRecordsByModel(calculatedRecords = []) {
+  if (!Array.isArray(calculatedRecords) || calculatedRecords.length === 0) {
+    return [];
+  }
+
+  const groups = new Map();
+  for (const record of calculatedRecords) {
+    const model = typeof record.model === 'string' && record.model.trim() !== ''
+      ? record.model.trim()
+      : 'Bilinmeyen Model';
+    if (!groups.has(model)) groups.set(model, []);
+    groups.get(model).push(record);
+  }
+
+  return Array.from(groups.entries()).map(([model, rows]) => ({
+    model,
+    summary: aggregateUsageSummaries(rows),
+  }));
+}
