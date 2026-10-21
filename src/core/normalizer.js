@@ -69,3 +69,30 @@ export function extractModelIdentifiers(rawName) {
 export function normalizeModelName(rawName) {
   return extractModelIdentifiers(rawName).base;
 }
+
+/** Faz 12: Yerleşik model takma ad (alias) sözlüğü. */
+export const DEFAULT_MODEL_ALIASES = Object.freeze({
+  'deepseek-v4.1-flash': 'deepseek-chat',
+  'deepseek-v4-flash': 'deepseek-chat',
+  'glm-5.3': 'glm-4-plus',
+  'mimo-v2.6-pro': 'mimo-v2.6-pro',
+  'qwen3-vl-30b': 'qwen-vl-max',
+  'qwen3-embedding-8b': 'qwen-text-embedding',
+  'qwen3-asr-1.7b': 'qwen-audio-asr',
+});
+
+/**
+ * Faz 12: Normalize edilmiş adı kanonik fiyat anahtarına eşler.
+ * customAliases verilirse yerleşik sözlüğü ezer.
+ * @param {string} normalizedName
+ * @param {Record<string,string>} [customAliases]
+ * @returns {string}
+ */
+export function resolveModelAlias(normalizedName, customAliases = {}) {
+  const key = typeof normalizedName === 'string' ? normalizedName.trim().toLowerCase() : '';
+  const table = Object.assign({}, DEFAULT_MODEL_ALIASES, customAliases || {});
+  if (Object.prototype.hasOwnProperty.call(table, key)) {
+    return table[key];
+  }
+  return key;
+}
