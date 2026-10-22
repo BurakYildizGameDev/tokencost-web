@@ -96,3 +96,65 @@ export function resolveModelAlias(normalizedName, customAliases = {}) {
   }
   return key;
 }
+
+/**
+ * Faz 13: Saf Levenshtein mesafesi (harici paket YOK, ~25 satırlık DP).
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+export function levenshteinDistance(a, b) {
+  const s = String(a);
+  const t = String(b);
+  if (s === t) return 0;
+  if (s.length === 0) return t.length;
+  if (t.length === 0) return s.length;
+
+  let prev = new Array(t.length + 1);
+  let curr = new Array(t.length + 1);
+  for (let j = 0; j <= t.length; j += 1) prev[j] = j;
+
+  for (let i = 1; i <= s.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= t.length; j += 1) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const swap = prev;
+    prev = curr;
+    curr = swap;
+  }
+  return prev[t.length];
+}
+
+/**
+ * Faz 13: OCR/typo hatalarına karşı bulanık eşleme yapar.
+ * @param {string} targetName
+ * @param {string[]} candidateModelIds
+ * @param {number} [maxDistance=3]
+ * @returns {{ matchedId: string, distance: number, confidence: number } | null}
+ */
+export function fuzzyMatchModel(targetName, candidateModelIds = [], maxDistance = 3) {
+  const target = normalizeModelName(targetName);
+  if (!target || !Array.isArray(candidateModelIds) || candidateModelIds.length === 0) {
+    return null;
+  }
+
+  let best = null;
+  for (const candidate of candidateModelIds) {
+    const normalizedCandidate = normalizeModelName(candidate);
+    if (!normalizedCandidate) continue;
+    const distance = levenshteinDistance(target, normalizedCandidate);
+    if (best === null || distance < best.distance) {
+      const maxLen = Math.max(target.length, normalizedCandidate.length) || 1;
+      best = {
+        matchedId: candidate,
+        distance,
+        confidence: Number((1 - distance / maxLen).toFixed(2)),
+      };
+    }
+  }
+
+  if (best === null || best.distance > maxDistance) return null;
+  return best;
+}

@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeModelName, extractModelIdentifiers } from '../src/core/normalizer.js';
 import { resolveModelAlias, DEFAULT_MODEL_ALIASES } from '../src/core/normalizer.js';
+import { levenshteinDistance, fuzzyMatchModel } from '../src/core/normalizer.js';
 
 describe('Faz 11: normalizeModelName', () => {
   it('boşlukları ve büyük/küçük harfi temizler', () => {
@@ -72,5 +73,30 @@ describe('Faz 12: resolveModelAlias', () => {
 
   it('alias yoksa normalize adı aynen döner', () => {
     expect(resolveModelAlias('some-unknown-model')).toBe('some-unknown-model');
+  });
+});
+
+describe('Faz 13: fuzzyMatchModel / levenshteinDistance', () => {
+  const candidates = ['deepseek-v4.1-flash', 'qwen3-vl-30b', 'glm-5.3', 'mimo-v2.6-pro'];
+
+  it('OCR hatalı adı en yakın adaya eşler', () => {
+    const result = fuzzyMatchModel('dcepseek-v4.1-flsh', candidates);
+    expect(result).toEqual({ matchedId: 'deepseek-v4.1-flash', distance: 2, confidence: 0.89 });
+  });
+
+  it('büyük O / sıfır karışıklığını tolere eder', () => {
+    const result = fuzzyMatchModel('qwen3-vl-3Ob', candidates);
+    expect(result).toEqual({ matchedId: 'qwen3-vl-30b', distance: 1, confidence: 0.92 });
+  });
+
+  it('maxDistance dışındaki adlar için null döner (yanlış eşleme yapmaz)', () => {
+    expect(fuzzyMatchModel('laya', candidates)).toBeNull();
+    expect(fuzzyMatchModel('clef', candidates)).toBeNull();
+  });
+
+  it('levenshteinDistance temel değerleri doğru verir', () => {
+    expect(levenshteinDistance('kitten', 'sitting')).toBe(3);
+    expect(levenshteinDistance('abc', 'abc')).toBe(0);
+    expect(levenshteinDistance('', 'abc')).toBe(3);
   });
 });
