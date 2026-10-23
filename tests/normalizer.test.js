@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { normalizeModelName, extractModelIdentifiers } from '../src/core/normalizer.js';
 import { resolveModelAlias, DEFAULT_MODEL_ALIASES } from '../src/core/normalizer.js';
 import { levenshteinDistance, fuzzyMatchModel } from '../src/core/normalizer.js';
+import { resolveFallbackPricing } from '../src/core/normalizer.js';
 
 describe('Faz 11: normalizeModelName', () => {
   it('boşlukları ve büyük/küçük harfi temizler', () => {
@@ -98,5 +99,48 @@ describe('Faz 13: fuzzyMatchModel / levenshteinDistance', () => {
     expect(levenshteinDistance('kitten', 'sitting')).toBe(3);
     expect(levenshteinDistance('abc', 'abc')).toBe(0);
     expect(levenshteinDistance('', 'abc')).toBe(3);
+  });
+});
+
+describe('Faz 14: resolveFallbackPricing', () => {
+  it('pro/max/opus/sonnet içeren adlar tier-pro-fallback ($1.00) döner', () => {
+    for (const name of ['mimo-v2.6-pro', 'qwen3-vl-max', 'claude-opus-4', 'claude-3-5-sonnet']) {
+      const profile = resolveFallbackPricing(name);
+      expect(profile.modelId).toBe('tier-pro-fallback');
+      expect(profile.uncachedInputCostPerMillion).toBe(1.0);
+      expect(profile.source).toBe('fallback');
+    }
+  });
+
+  it('flash/mini/haiku/lite içeren adlar tier-flash-fallback ($0.15) döner', () => {
+    for (const name of ['deepseek-v4.1-flash', 'gpt-4o-mini', 'claude-haiku', 'gemini-lite']) {
+      const profile = resolveFallbackPricing(name);
+      expect(profile.modelId).toBe('tier-flash-fallback');
+      expect(profile.uncachedInputCostPerMillion).toBe(0.15);
+      expect(profile.source).toBe('fallback');
+    }
+  });
+
+  it('embed/bge içeren adlar tier-embedding-fallback ($0.02) döner', () => {
+    for (const name of ['qwen3-embedding-8b', 'bge-large-en']) {
+      const profile = resolveFallbackPricing(name);
+      expect(profile.modelId).toBe('tier-embedding-fallback');
+      expect(profile.uncachedInputCostPerMillion).toBe(0.02);
+      expect(profile.source).toBe('fallback');
+    }
+  });
+
+  it('hiçbir ipucu içermeyen adlar için tier-standard-fallback döner', () => {
+    for (const name of ['clef', 'laya', 'auto']) {
+      const profile = resolveFallbackPricing(name);
+      expect(profile.modelId).toBe('tier-standard-fallback');
+      expect(profile.source).toBe('fallback');
+    }
+  });
+
+  it('bilinmeyen modelde bile geçerli, dondurulmuş bir nesne döner (çökmez)', () => {
+    const profile = resolveFallbackPricing('totally-unknown-model-xyz');
+    expect(Object.isFrozen(profile)).toBe(true);
+    expect(typeof profile.outputCostPerMillion).toBe('number');
   });
 });

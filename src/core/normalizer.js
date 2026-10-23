@@ -1,6 +1,8 @@
 // src/core/normalizer.js
-// Faz 11: Model adı normalizasyonu (Saf / Pure Core katmanı).
+// Faz 11 - 14: Model normalizasyon, alias, bulanık eşleme ve fallback politikası.
 // KURAL: Bu dosyada document, window, localStorage veya fetch KULLANILMAZ.
+
+import { createPricingProfile } from './schema.js';
 
 /** Ad sonundaki etiket ekleri: ":free", ":beta", ":latest" vb. */
 const TAG_SUFFIX_PATTERN = /:(free|beta|preview|nitro|extended|thinking|latest)$/;
@@ -157,4 +159,47 @@ export function fuzzyMatchModel(targetName, candidateModelIds = [], maxDistance 
 
   if (best === null || best.distance > maxDistance) return null;
   return best;
+}
+
+/**
+ * Faz 14: Kademeli varsayılan (fallback) fiyat kademeleri.
+ * Sıralama önemlidir: pro > flash > embedding.
+ */
+const FALLBACK_TIERS = Object.freeze([
+  { id: 'tier-pro-fallback', uncached: 1.0, output: 3.0, keywords: ['pro', 'max', 'opus', 'sonnet'] },
+  { id: 'tier-flash-fallback', uncached: 0.15, output: 0.45, keywords: ['flash', 'mini', 'haiku', 'lite'] },
+  { id: 'tier-embedding-fallback', uncached: 0.02, output: 0.02, keywords: ['embed', 'bge'] },
+]);
+
+/** Bilinmeyen modeller için güvenli standart kademe. */
+const STANDARD_FALLBACK = Object.freeze({ id: 'tier-standard-fallback', uncached: 0.5, output: 1.5 });
+
+/**
+ * Faz 14: Bilinmeyen model için anahtar kelime tabanlı fallback profili üretir.
+ * Uygulama asla çökmez; her zaman geçerli bir ModelPricing döner.
+ * @param {string} modelName
+ * @returns {Readonly<object>} ModelPricing (source: 'fallback')
+ */
+export function resolveFallbackPricing(modelName) {
+  const normalized = normalizeModelName(modelName);
+
+  for (const tier of FALLBACK_TIERS) {
+    if (tier.keywords.some((keyword) => normalized.includes(keyword))) {
+      return createPricingProfile({
+        modelId: tier.id,
+        displayName: tier.id,
+        uncachedInputCostPerMillion: tier.uncached,
+        outputCostPerMillion: tier.output,
+        source: 'fallback',
+      });
+    }
+  }
+
+  return createPricingProfile({
+    modelId: STANDARD_FALLBACK.id,
+    displayName: STANDARD_FALLBACK.id,
+    uncachedInputCostPerMillion: STANDARD_FALLBACK.uncached,
+    outputCostPerMillion: STANDARD_FALLBACK.output,
+    source: 'fallback',
+  });
 }
