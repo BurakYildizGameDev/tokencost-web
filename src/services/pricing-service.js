@@ -59,3 +59,37 @@ export function applyCustomPriceOverrides(baseCatalog = {}, userOverrides = {}) 
 
   return catalog;
 }
+
+/** Faz 16: LiteLLM fiyat veri seti URL'i. */
+export const LITELLM_PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+
+/**
+ * Faz 16: LiteLLM fiyat JSON'unu AbortController zaman aşımı koruması ile çeker.
+ * @param {Function} [fetchFn=globalThis.fetch]
+ * @param {number} [timeoutMs=5000]
+ * @returns {Promise<object>}
+ */
+export async function fetchLiteLLMPrices(fetchFn = globalThis.fetch, timeoutMs = 5000) {
+  if (typeof fetchFn !== 'function') {
+    throw new Error('ERR_FETCH_UNAVAILABLE');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetchFn(LITELLM_PRICING_URL, { signal: controller.signal });
+    if (!response || !response.ok) {
+      const status = response ? response.status : 'UNKNOWN';
+      throw new Error(`ERR_LITELLM_FETCH_FAILED: ${status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('ERR_LITELLM_FETCH_TIMEOUT');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
