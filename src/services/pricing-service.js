@@ -93,3 +93,39 @@ export async function fetchLiteLLMPrices(fetchFn = globalThis.fetch, timeoutMs =
     clearTimeout(timer);
   }
 }
+
+/** Görsel/ses/video modları (metin fiyatlandırması dışı). */
+const NON_TEXT_MODE_PATTERN = /image|audio|video/i;
+
+/**
+ * Faz 17: LiteLLM ham JSON'unu standart ModelPricing kataloğuna dönüştürür.
+ * NOT: LiteLLM fiyatları 1 TOKEN başınadır; 1e6 ile çarpılmalıdır.
+ * @param {object} rawJson
+ * @returns {Record<string, object>}
+ */
+export function parseLiteLLMResponse(rawJson = {}) {
+  const catalog = {};
+
+  for (const [modelId, entry] of Object.entries(rawJson || {})) {
+    if (modelId === 'sample_spec') continue;
+    if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.mode === 'string' && NON_TEXT_MODE_PATTERN.test(entry.mode)) continue;
+
+    const inputPerToken = toNumber(entry.input_cost_per_token);
+    const outputPerToken = toNumber(entry.output_cost_per_token);
+    if (inputPerToken === null || outputPerToken === null) continue;
+
+    const cachePerToken = toNumber(entry.cache_read_input_token_cost);
+
+    catalog[modelId] = createPricingProfile({
+      modelId,
+      displayName: modelId,
+      cachedInputCostPerMillion: cachePerToken === null ? undefined : perTokenToPerMillion(cachePerToken),
+      uncachedInputCostPerMillion: perTokenToPerMillion(inputPerToken),
+      outputCostPerMillion: perTokenToPerMillion(outputPerToken),
+      source: 'litellm',
+    });
+  }
+
+  return catalog;
+}

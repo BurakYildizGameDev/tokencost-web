@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyCustomPriceOverrides } from '../src/services/pricing-service.js';
 import { fetchLiteLLMPrices } from '../src/services/pricing-service.js';
+import { parseLiteLLMResponse } from '../src/services/pricing-service.js';
 
 describe('Faz 15: applyCustomPriceOverrides', () => {
   const base = {
@@ -66,5 +67,42 @@ describe('Faz 16: fetchLiteLLMPrices', () => {
       if (signal) signal.addEventListener('abort', () => reject(new Error('aborted')));
     });
     await expect(fetchLiteLLMPrices(hangingFetch, 10)).rejects.toThrowError('ERR_LITELLM_FETCH_TIMEOUT');
+  });
+});
+
+describe('Faz 17: parseLiteLLMResponse', () => {
+  const raw = {
+    sample_spec: { input_cost_per_token: 0 },
+    'deepseek-chat': {
+      input_cost_per_token: 0.00000014,
+      cache_read_input_token_cost: 0.000000014,
+      output_cost_per_token: 0.00000028,
+      mode: 'chat',
+    },
+    'dall-e-3': { input_cost_per_token: 0.00004, output_cost_per_token: 0, mode: 'image_generation' },
+    'broken-model': { litellm_provider: 'x' },
+  };
+
+  it('token başı fiyatları 1e6 ile çarparak dönüştürür', () => {
+    const catalog = parseLiteLLMResponse(raw);
+    expect(catalog['deepseek-chat'].uncachedInputCostPerMillion).toBe(0.14);
+    expect(catalog['deepseek-chat'].cachedInputCostPerMillion).toBe(0.014);
+    expect(catalog['deepseek-chat'].outputCostPerMillion).toBe(0.28);
+    expect(catalog['deepseek-chat'].source).toBe('litellm');
+  });
+
+  it('sample_spec, görsel ve bozuk kayıtları filtreler', () => {
+    const catalog = parseLiteLLMResponse(raw);
+    expect(catalog.sample_spec).toBeUndefined();
+    expect(catalog['dall-e-3']).toBeUndefined();
+    expect(catalog['broken-model']).toBeUndefined();
+  });
+
+  it('cache_read yoksa alan atlanır ve isCacheEstimated:true olur', () => {
+    const catalog = parseLiteLLMResponse({
+      m: { input_cost_per_token: 1e-7, output_cost_per_token: 2e-7 },
+    });
+    expect(catalog.m.cachedInputCostPerMillion).toBe(0.05);
+    expect(catalog.m.isCacheEstimated).toBe(true);
   });
 });
