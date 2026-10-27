@@ -129,3 +129,56 @@ export function parseLiteLLMResponse(rawJson = {}) {
 
   return catalog;
 }
+
+/** Faz 18: OpenRouter canlı modeller endpoint'i. */
+export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+
+/**
+ * Faz 18: OpenRouter yanıtını standart ModelPricing kataloğuna dönüştürür.
+ * NOT: OpenRouter fiyatları STRING gelir (parseFloat zorunlu) ve 1 token başınadır.
+ * @param {object} payload
+ * @returns {Record<string, object>}
+ */
+export function parseOpenRouterResponse(payload = {}) {
+  const catalog = {};
+  const list = Array.isArray(payload?.data) ? payload.data : [];
+
+  for (const model of list) {
+    if (!model || typeof model !== 'object' || typeof model.id !== 'string') continue;
+    const pricing = model.pricing || {};
+    const prompt = toNumber(pricing.prompt);
+    const completion = toNumber(pricing.completion);
+    if (prompt === null || completion === null) continue;
+
+    const cacheRead = toNumber(pricing.input_cache_read);
+
+    catalog[model.id] = createPricingProfile({
+      modelId: model.id,
+      displayName: model.name || model.id,
+      cachedInputCostPerMillion: cacheRead === null ? undefined : perTokenToPerMillion(cacheRead),
+      uncachedInputCostPerMillion: perTokenToPerMillion(prompt),
+      outputCostPerMillion: perTokenToPerMillion(completion),
+      source: 'openrouter',
+    });
+  }
+
+  return catalog;
+}
+
+/**
+ * Faz 18: OpenRouter canlı fiyatlarını çeker ve ayrıştırır.
+ * @param {Function} [fetchFn=globalThis.fetch]
+ * @returns {Promise<Record<string, object>>}
+ */
+export async function fetchAndParseOpenRouterPrices(fetchFn = globalThis.fetch) {
+  if (typeof fetchFn !== 'function') {
+    throw new Error('ERR_FETCH_UNAVAILABLE');
+  }
+  const response = await fetchFn(OPENROUTER_MODELS_URL);
+  if (!response || !response.ok) {
+    const status = response ? response.status : 'UNKNOWN';
+    throw new Error(`ERR_OPENROUTER_FETCH_FAILED: ${status}`);
+  }
+  const payload = await response.json();
+  return parseOpenRouterResponse(payload);
+}

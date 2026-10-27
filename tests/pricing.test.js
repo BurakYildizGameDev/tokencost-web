@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { applyCustomPriceOverrides } from '../src/services/pricing-service.js';
 import { fetchLiteLLMPrices } from '../src/services/pricing-service.js';
 import { parseLiteLLMResponse } from '../src/services/pricing-service.js';
+import { fetchAndParseOpenRouterPrices } from '../src/services/pricing-service.js';
 
 describe('Faz 15: applyCustomPriceOverrides', () => {
   const base = {
@@ -104,5 +105,36 @@ describe('Faz 17: parseLiteLLMResponse', () => {
     });
     expect(catalog.m.cachedInputCostPerMillion).toBe(0.05);
     expect(catalog.m.isCacheEstimated).toBe(true);
+  });
+});
+
+describe('Faz 18: fetchAndParseOpenRouterPrices', () => {
+  const openRouterPayload = {
+    data: [
+      {
+        id: 'deepseek/deepseek-chat',
+        name: 'DeepSeek Chat',
+        pricing: {
+          prompt: '0.00000014',
+          completion: '0.00000028',
+          input_cache_read: '0.000000014',
+        },
+      },
+    ],
+  };
+
+  it('string fiyatları floata çevirip 1e6 ile çarpar', async () => {
+    const mockFetch = async () => ({ ok: true, status: 200, json: async () => openRouterPayload });
+    const catalog = await fetchAndParseOpenRouterPrices(mockFetch);
+    const entry = catalog['deepseek/deepseek-chat'];
+    expect(entry.uncachedInputCostPerMillion).toBe(0.14);
+    expect(entry.outputCostPerMillion).toBe(0.28);
+    expect(entry.cachedInputCostPerMillion).toBe(0.014);
+    expect(entry.source).toBe('openrouter');
+  });
+
+  it('başarısız yanıtta ERR_OPENROUTER_FETCH_FAILED fırlatır', async () => {
+    const mockFetch = async () => ({ ok: false, status: 503 });
+    await expect(fetchAndParseOpenRouterPrices(mockFetch)).rejects.toThrowError('ERR_OPENROUTER_FETCH_FAILED: 503');
   });
 });
