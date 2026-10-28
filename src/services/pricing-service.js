@@ -182,3 +182,97 @@ export async function fetchAndParseOpenRouterPrices(fetchFn = globalThis.fetch) 
   const payload = await response.json();
   return parseOpenRouterResponse(payload);
 }
+
+/** Faz 19: Önbellek anahtarı. */
+export const PRICING_CACHE_KEY = 'tokencost_pricing_cache';
+
+/** Önbellek TTL'i (24 saat, ms). */
+const CACHE_TTL_MS = 24 * 3600 * 1000;
+
+/** Geçersiz, gelecek zamanlı veya bayat timestamp kontrolü. */
+function isCacheStale(savedTimestamp, now) {
+  if (typeof savedTimestamp !== 'number' || !Number.isFinite(savedTimestamp)) return true;
+  if (savedTimestamp > now) return true;
+  return now - savedTimestamp > CACHE_TTL_MS;
+}
+
+/** Önbelleği güvenli biçimde yazar (QuotaExceededError'ı yutar). */
+function writeCache(store, payload) {
+  if (!store || typeof store.setItem !== 'function') return;
+  try {
+    store.setItem(PRICING_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // localStorage kotası dolabilir; uygulama çökmesin.
+  }
+}
+
+/**
+ * Faz 19: 3 kademeli fiyat kataloğu yükleme zinciri.
+ * Cache -> LiteLLM -> OpenRouter -> statik fallback.
+ * @param {object} options
+ * @param {Storage} [options.storage]
+ * @param {Function} [options.fetchFn=globalThis.fetch]
+ * @param {Record<string, object>} [options.fallbackData]
+ * @param {number} [options.now=Date.now()]
+ * @returns {Promise<{ catalog: object, source: string, isOfflineFallback: boolean, savedAt: number|null }>}
+ */
+export async function loadPricingCatalog({
+  storage,
+  fetchFn = globalThis.fetch,
+  fallbackData = {},
+  now = Date.now(),
+} = {}) {
+  const store = storage
+    || (typeof globalThis.localStorage !== 'undefined' ? globalThis.localStorage : null);
+
+  // 1) Önbellek (taze ise ağ isteği yapmadan dön).
+  if (store && typeof store.getItem === 'function') {
+    try {
+      const raw = store.getItem(PRICING_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.catalog && !isCacheStale(parsed.savedAt, now)) {
+          return {
+            catalog: parsed.catalog,
+            source: 'cache',
+            isOfflineFallback: false,
+            savedAt: parsed.savedAt,
+          };
+        }
+      }
+    } catch {
+      // Bozuk önbellek kaydını yoksay.
+    }
+  }
+
+  // 2) LiteLLM
+  try {
+    const rawJson = await fetchLiteLLMPrices(fetchFn);
+    const catalog = parseLiteLLMResponse(rawJson);
+    if (Object.keys(catalog).length > 0) {
+      writeCache(store, { savedAt: now, catalog });
+      return { catalog, source: 'litellm', isOfflineFallback: false, savedAt: now };
+    }
+  } catch {
+    // Sonraki kademeye geç.
+  }
+
+  // 3) OpenRouter
+  try {
+    const catalog = await fetchAndParseOpenRouterPrices(fetchFn);
+    if (Object.keys(catalog).length > 0) {
+      writeCache(store, { savedAt: now, catalog });
+      return { catalog, source: 'openrouter', isOfflineFallback: false, savedAt: now };
+    }
+  } catch {
+    // Sonraki kademeye geç.
+  }
+
+  // 4) Statik fallback (offline mod).
+  return {
+    catalog: fallbackData || {},
+    source: 'fallback',
+    isOfflineFallback: true,
+    savedAt: null,
+  };
+}

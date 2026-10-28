@@ -5,6 +5,19 @@ import { applyCustomPriceOverrides } from '../src/services/pricing-service.js';
 import { fetchLiteLLMPrices } from '../src/services/pricing-service.js';
 import { parseLiteLLMResponse } from '../src/services/pricing-service.js';
 import { fetchAndParseOpenRouterPrices } from '../src/services/pricing-service.js';
+import { loadPricingCatalog, PRICING_CACHE_KEY } from '../src/services/pricing-service.js';
+import { LITELLM_PRICING_URL, OPENROUTER_MODELS_URL } from '../src/services/pricing-service.js';
+
+/** Bellek içi Storage taklidi (test amaçlı). */
+function createMemoryStorage(initial = {}) {
+  const map = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => { map.set(key, String(value)); },
+    removeItem: (key) => { map.delete(key); },
+    _map: map,
+  };
+}
 
 describe('Faz 15: applyCustomPriceOverrides', () => {
   const base = {
@@ -136,5 +149,87 @@ describe('Faz 18: fetchAndParseOpenRouterPrices', () => {
   it('başarısız yanıtta ERR_OPENROUTER_FETCH_FAILED fırlatır', async () => {
     const mockFetch = async () => ({ ok: false, status: 503 });
     await expect(fetchAndParseOpenRouterPrices(mockFetch)).rejects.toThrowError('ERR_OPENROUTER_FETCH_FAILED: 503');
+  });
+});
+
+describe('Faz 19: loadPricingCatalog', () => {
+  const litellmJson = {
+    'deepseek-chat': {
+      input_cost_per_token: 1.4e-7,
+      output_cost_per_token: 2.8e-7,
+      cache_read_input_token_cost: 1.4e-8,
+    },
+  };
+
+  it('geçerli ve taze önbellek varsa ağ isteği yapmaz', async () => {
+    const storage = createMemoryStorage();
+    const now = 1_000_000_000_000;
+    storage.setItem(PRICING_CACHE_KEY, JSON.stringify({
+      savedAt: now - 1000,
+      catalog: { cachedModel: { modelId: 'cachedModel' } },
+    }));
+    let fetchCalled = false;
+    const fetchFn = async () => {
+      fetchCalled = true;
+      return { ok: true, status: 200, json: async () => litellmJson };
+    };
+
+    const result = await loadPricingCatalog({ storage, fetchFn, now });
+    expect(fetchCalled).toBe(false);
+    expect(result.source).toBe('cache');
+    expect(result.catalog.cachedModel).toBeDefined();
+  });
+
+  it('önbellek yoksa LiteLLM denenir ve önbelleğe kaydedilir', async () => {
+    const storage = createMemoryStorage();
+    const fetchFn = async (url) => {
+      if (url === LITELLM_PRICING_URL) return { ok: true, status: 200, json: async () => litellmJson };
+      return { ok: false, status: 500 };
+    };
+    const result = await loadPricingCatalog({ storage, fetchFn, now: 2_000_000_000_000 });
+    expect(result.source).toBe('litellm');
+    expect(result.isOfflineFallback).toBe(false);
+    expect(storage.getItem(PRICING_CACHE_KEY)).not.toBeNull();
+  });
+
+  it('LiteLLM başarısızsa OpenRouter denenir', async () => {
+    const storage = createMemoryStorage();
+    const fetchFn = async (url) => {
+      if (url === OPENROUTER_MODELS_URL) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [{ id: 'deepseek/deepseek-chat', pricing: { prompt: '0.00000014', completion: '0.00000028' } }],
+          }),
+        };
+      }
+      return { ok: false, status: 500 };
+    };
+    const result = await loadPricingCatalog({ storage, fetchFn, now: 3_000_000_000_000 });
+    expect(result.source).toBe('openrouter');
+  });
+
+  it('her iki ağ da başarısızsa statik fallback ve isOfflineFallback:true', async () => {
+    const storage = createMemoryStorage();
+    const fetchFn = async () => { throw new Error('offline'); };
+    const result = await loadPricingCatalog({
+      storage,
+      fetchFn,
+      fallbackData: { 'tier-standard-fallback': { modelId: 'tier-standard-fallback' } },
+    });
+    expect(result.source).toBe('fallback');
+    expect(result.isOfflineFallback).toBe(true);
+    expect(result.catalog['tier-standard-fallback']).toBeDefined();
+  });
+
+  it('storage.setItem kota hatası fırlatsa bile çökmez', async () => {
+    const storage = {
+      getItem: () => null,
+      setItem: () => { throw new Error('QuotaExceededError'); },
+    };
+    const fetchFn = async () => ({ ok: true, status: 200, json: async () => litellmJson });
+    const result = await loadPricingCatalog({ storage, fetchFn });
+    expect(result.source).toBe('litellm');
   });
 });
