@@ -7,6 +7,7 @@ import { parseLiteLLMResponse } from '../src/services/pricing-service.js';
 import { fetchAndParseOpenRouterPrices } from '../src/services/pricing-service.js';
 import { loadPricingCatalog, PRICING_CACHE_KEY } from '../src/services/pricing-service.js';
 import { LITELLM_PRICING_URL, OPENROUTER_MODELS_URL } from '../src/services/pricing-service.js';
+import { isPricingCacheStale } from '../src/services/pricing-service.js';
 
 /** Bellek içi Storage taklidi (test amaçlı). */
 function createMemoryStorage(initial = {}) {
@@ -231,5 +232,32 @@ describe('Faz 19: loadPricingCatalog', () => {
     const fetchFn = async () => ({ ok: true, status: 200, json: async () => litellmJson });
     const result = await loadPricingCatalog({ storage, fetchFn });
     expect(result.source).toBe('litellm');
+  });
+});
+
+describe('Faz 20: isPricingCacheStale', () => {
+  const DAY = 24 * 3600 * 1000;
+
+  it('24 saatten eski timestamp için true (bayat) döner', () => {
+    const now = 10 * DAY;
+    expect(isPricingCacheStale(now - DAY - 1, 24, now)).toBe(true);
+  });
+
+  it('24 saatten yeni timestamp için false (taze) döner', () => {
+    const now = 10 * DAY;
+    expect(isPricingCacheStale(now - DAY + 1, 24, now)).toBe(false);
+  });
+
+  it('geçersiz veya gelecek zamanlı timestamp için güvenli tarafta true döner', () => {
+    const now = 10 * DAY;
+    expect(isPricingCacheStale(NaN, 24, now)).toBe(true);
+    expect(isPricingCacheStale(undefined, 24, now)).toBe(true);
+    expect(isPricingCacheStale(now + DAY, 24, now)).toBe(true);
+  });
+
+  it('özel TTL değerini dikkate alır', () => {
+    const now = 10 * DAY;
+    expect(isPricingCacheStale(now - 2 * 3600 * 1000, 1, now)).toBe(true);
+    expect(isPricingCacheStale(now - 2 * 3600 * 1000, 3, now)).toBe(false);
   });
 });

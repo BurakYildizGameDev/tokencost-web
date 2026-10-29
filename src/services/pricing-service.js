@@ -186,14 +186,23 @@ export async function fetchAndParseOpenRouterPrices(fetchFn = globalThis.fetch) 
 /** Faz 19: Önbellek anahtarı. */
 export const PRICING_CACHE_KEY = 'tokencost_pricing_cache';
 
-/** Önbellek TTL'i (24 saat, ms). */
-const CACHE_TTL_MS = 24 * 3600 * 1000;
+/** Varsayılan önbellek TTL'i (saat). */
+export const DEFAULT_PRICING_TTL_HOURS = 24;
 
-/** Geçersiz, gelecek zamanlı veya bayat timestamp kontrolü. */
-function isCacheStale(savedTimestamp, now) {
+/**
+ * Faz 20: Kaydedilmiş timestamp'in bayat (stale) olup olmadığını söyler.
+ * Geçersiz veya gelecek zamanlı timestamp'lerde güvenli tarafta kalıp true döner.
+ * @param {number} savedTimestamp
+ * @param {number} [ttlHours=24]
+ * @param {number} [now=Date.now()]
+ * @returns {boolean}
+ */
+export function isPricingCacheStale(savedTimestamp, ttlHours = DEFAULT_PRICING_TTL_HOURS, now = Date.now()) {
   if (typeof savedTimestamp !== 'number' || !Number.isFinite(savedTimestamp)) return true;
   if (savedTimestamp > now) return true;
-  return now - savedTimestamp > CACHE_TTL_MS;
+  const ttlMs = Number(ttlHours) * 3600 * 1000;
+  if (!Number.isFinite(ttlMs)) return true;
+  return now - savedTimestamp > ttlMs;
 }
 
 /** Önbelleği güvenli biçimde yazar (QuotaExceededError'ı yutar). */
@@ -231,7 +240,7 @@ export async function loadPricingCatalog({
       const raw = store.getItem(PRICING_CACHE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.catalog && !isCacheStale(parsed.savedAt, now)) {
+        if (parsed && parsed.catalog && !isPricingCacheStale(parsed.savedAt, DEFAULT_PRICING_TTL_HOURS, now)) {
           return {
             catalog: parsed.catalog,
             source: 'cache',
