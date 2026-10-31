@@ -42,3 +42,54 @@ export function isSummaryRow(lineText) {
   const firstCell = cells.length > 0 ? cells[0] : lineText.trim();
   return SUMMARY_ROW_PATTERN.test(firstCell);
 }
+
+/**
+ * Faz 22: Türkçe/İngilizce sayı metinlerini güvenli şekilde sayıya çevirir.
+ * - "30.811.037" → 30811037 (Türkçe binlik ayırıcı)
+ * - "1.079"      → 1079      (ondalık DEĞİL!)
+ * - "30,811,037" → 30811037  (İngilizce binlik ayırıcı)
+ * - "—", "-", "" → 0
+ * @param {unknown} rawStr
+ * @returns {number}
+ */
+export function sanitizeNumberString(rawStr) {
+  if (rawStr === undefined || rawStr === null) return 0;
+  if (typeof rawStr === 'number') return Number.isFinite(rawStr) ? rawStr : 0;
+
+  // Tire işaretleri (— – −) normal tireye indir, boşluk ve parantezli açıklamaları at.
+  let text = String(rawStr)
+    .replace(/[\u2014\u2013\u2212]/g, '-')
+    .replace(/\s/g, '');
+  const isNegative = text.startsWith('-');
+  text = text.replace(/\([^)]*\)/g, '');
+
+  const digits = text.replace(/[^\d.,]/g, '');
+  if (digits === '' || /^[.,]+$/.test(digits)) return 0;
+
+  const dotIndex = digits.lastIndexOf('.');
+  const commaIndex = digits.lastIndexOf(',');
+  let normalized;
+
+  if (dotIndex !== -1 && commaIndex !== -1) {
+    if (dotIndex > commaIndex) {
+      // İngilizce: virgül binlik, nokta ondalık → "1,234.56"
+      normalized = digits.replace(/,/g, '');
+    } else {
+      // Türkçe: nokta binlik, virgül ondalık → "1.234,56"
+      normalized = digits.replace(/\./g, '').replace(',', '.');
+    }
+  } else if (dotIndex !== -1) {
+    // Yalnızca nokta: 3'lü gruplar binlik ayırıcıdır ("1.079" → 1079).
+    normalized = /^\d{1,3}(\.\d{3})+$/.test(digits) ? digits.replace(/\./g, '') : digits;
+  } else if (commaIndex !== -1) {
+    // Yalnızca virgül: 3'lü gruplar İngilizce binlik ayırıcıdır ("30,811,037" → 30811037).
+    normalized = /^\d{1,3}(,\d{3})+$/.test(digits) ? digits.replace(/,/g, '') : digits.replace(',', '.');
+  } else {
+    normalized = digits;
+  }
+
+  const value = Number(normalized);
+  if (!Number.isFinite(value)) return 0;
+  return isNegative ? -value : value;
+}
+

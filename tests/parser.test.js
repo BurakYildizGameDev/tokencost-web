@@ -2,6 +2,7 @@
 // Faz 21 - 25: Metin / tablo ayrıştırıcı testleri.
 import { describe, it, expect } from 'vitest';
 import { tokenizeRawLine, isSummaryRow } from '../src/core/parser.js';
+import { sanitizeNumberString } from '../src/core/parser.js';
 
 describe('Faz 21: tokenizeRawLine', () => {
   it('sekme ile ayrılmış gerçek satırı tam 7 hücreye ayırır', () => {
@@ -31,5 +32,35 @@ describe('Faz 21: tokenizeRawLine', () => {
     expect(isSummaryRow('Toplam (30 gün)')).toBe(true);
     expect(isSummaryRow('Total (30 days)')).toBe(true);
     expect(isSummaryRow('14 Eki\tdeepseek-v4.1-flash')).toBe(false);
+  });
+});
+
+describe('Faz 22: sanitizeNumberString', () => {
+  it('Türkçe binlik ayırıcıyı (nokta) doğru çözer', () => {
+    expect(sanitizeNumberString('30.811.037')).toBe(30811037);
+    expect(sanitizeNumberString('1.079')).toBe(1079);
+    expect(sanitizeNumberString('2.378.273')).toBe(2378273);
+  });
+
+  it('İngilizce binlik ayırıcıyı (virgül) doğru çözer', () => {
+    expect(sanitizeNumberString('30,811,037')).toBe(30811037);
+  });
+
+  it('tire ve boş metinlerde 0 döner', () => {
+    expect(sanitizeNumberString('—')).toBe(0);
+    expect(sanitizeNumberString('-')).toBe(0);
+    expect(sanitizeNumberString('')).toBe(0);
+    expect(sanitizeNumberString(null)).toBe(0);
+    expect(sanitizeNumberString(undefined)).toBe(0);
+  });
+
+  it('kuruşlu ücret sütununu (0,00) 0 olarak okur', () => {
+    expect(sanitizeNumberString('0,00')).toBe(0);
+    expect(sanitizeNumberString('1,25')).toBe(1.25);
+  });
+
+  it('para sembolü ve yüzde işaretini yoksayar', () => {
+    expect(sanitizeNumberString('$1.234,56')).toBe(1234.56);
+    expect(sanitizeNumberString('341')).toBe(341);
   });
 });
