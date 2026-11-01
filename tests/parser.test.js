@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { tokenizeRawLine, isSummaryRow } from '../src/core/parser.js';
 import { sanitizeNumberString } from '../src/core/parser.js';
+import { parseCachedColumn } from '../src/core/parser.js';
 
 describe('Faz 21: tokenizeRawLine', () => {
   it('sekme ile ayrılmış gerçek satırı tam 7 hücreye ayırır', () => {
@@ -62,5 +63,33 @@ describe('Faz 22: sanitizeNumberString', () => {
   it('para sembolü ve yüzde işaretini yoksayar', () => {
     expect(sanitizeNumberString('$1.234,56')).toBe(1234.56);
     expect(sanitizeNumberString('341')).toBe(341);
+  });
+});
+
+describe('Faz 23: parseCachedColumn', () => {
+  it('"29.312.128 (%96)" hücresini token ve yüzdeye ayırır', () => {
+    expect(parseCachedColumn('29.312.128 (%96)')).toEqual({
+      cachedTokens: 29312128,
+      reportedPercentage: 96,
+    });
+  });
+
+  it('"23.488 (%6)" hücresini doğru ayrıştırır', () => {
+    expect(parseCachedColumn('23.488 (%6)')).toEqual({
+      cachedTokens: 23488,
+      reportedPercentage: 6,
+    });
+  });
+
+  it('İngilizce "96%" biçimini de destekler', () => {
+    expect(parseCachedColumn('29,312,128 (96%)')).toEqual({
+      cachedTokens: 29312128,
+      reportedPercentage: 96,
+    });
+  });
+
+  it('tire ve sıfır hücrelerinde 0/0 döner', () => {
+    expect(parseCachedColumn('—')).toEqual({ cachedTokens: 0, reportedPercentage: 0 });
+    expect(parseCachedColumn('0')).toEqual({ cachedTokens: 0, reportedPercentage: 0 });
   });
 });

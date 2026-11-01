@@ -43,6 +43,37 @@ export function isSummaryRow(lineText) {
   return SUMMARY_ROW_PATTERN.test(firstCell);
 }
 
+/** Yüzde değerini 2 ondalık basamağa yuvarlar (number döner). */
+function roundPercent(value) {
+  return Number(Number(value).toFixed(2));
+}
+
+/**
+ * Faz 23: "29.312.128 (%96)" gibi önbellek sütununu ayrıştırır.
+ * Hem "%96" (Türkçe) hem "96%" (İngilizce) biçimini destekler.
+ * @param {unknown} cellText
+ * @returns {{ cachedTokens: number, reportedPercentage: number }}
+ */
+export function parseCachedColumn(cellText) {
+  const emptyResult = { cachedTokens: 0, reportedPercentage: 0 };
+  if (cellText === undefined || cellText === null) return emptyResult;
+
+  const text = String(cellText).trim();
+  if (text === '') return emptyResult;
+
+  const percentMatch = text.match(/\(\s*%?\s*(\d+(?:[.,]\d+)?)\s*%?\s*\)/);
+  let reportedPercentage = 0;
+  if (percentMatch) {
+    const parsed = sanitizeNumberString(percentMatch[1]);
+    reportedPercentage = roundPercent(Math.min(100, Math.max(0, parsed)));
+  }
+
+  const withoutParentheses = text.replace(/\([^)]*\)/g, '').trim();
+  const cachedTokens = Math.max(0, Math.round(sanitizeNumberString(withoutParentheses)));
+
+  return { cachedTokens, reportedPercentage };
+}
+
 /**
  * Faz 22: Türkçe/İngilizce sayı metinlerini güvenli şekilde sayıya çevirir.
  * - "30.811.037" → 30811037 (Türkçe binlik ayırıcı)
