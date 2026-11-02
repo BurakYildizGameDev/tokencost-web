@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { tokenizeRawLine, isSummaryRow } from '../src/core/parser.js';
 import { sanitizeNumberString } from '../src/core/parser.js';
 import { parseCachedColumn } from '../src/core/parser.js';
+import { detectColumnIndices } from '../src/core/parser.js';
 
 describe('Faz 21: tokenizeRawLine', () => {
   it('sekme ile ayrılmış gerçek satırı tam 7 hücreye ayırır', () => {
@@ -91,5 +92,62 @@ describe('Faz 23: parseCachedColumn', () => {
   it('tire ve sıfır hücrelerinde 0/0 döner', () => {
     expect(parseCachedColumn('—')).toEqual({ cachedTokens: 0, reportedPercentage: 0 });
     expect(parseCachedColumn('0')).toEqual({ cachedTokens: 0, reportedPercentage: 0 });
+  });
+});
+
+describe('Faz 24: detectColumnIndices', () => {
+  it('Türkçe başlık satırındaki indeksleri doğru eşler', () => {
+    const indices = detectColumnIndices([
+      'Zaman dilimi',
+      'Model',
+      'İstek',
+      'Toplam token',
+      'Önbellekten',
+      'Kotaya yansıyan',
+      'Ücret ($)',
+    ]);
+    expect(indices).toEqual({
+      date: 0,
+      model: 1,
+      requests: 2,
+      totalTokens: 3,
+      cachedTokens: 4,
+      billedTokens: 5,
+      cost: 6,
+      hasHeader: true,
+    });
+  });
+
+  it('başlıksız veri satırından yapısal çıkarım yapar ve satırı yutmaz', () => {
+    const indices = detectColumnIndices([
+      '14 Eki',
+      'deepseek-v4.1-flash',
+      '341',
+      '30.811.037',
+      '29.312.128 (%96)',
+      '2.378.273',
+      '0,00',
+    ]);
+    expect(indices).toEqual({
+      date: 0,
+      model: 1,
+      requests: 2,
+      totalTokens: 3,
+      cachedTokens: 4,
+      billedTokens: 5,
+      cost: 6,
+      hasHeader: false,
+    });
+  });
+
+  it('İngilizce başlıkları da (Date/Model/Requests/Cost) tanır', () => {
+    const indices = detectColumnIndices(['Date', 'Model', 'Requests', 'Total tokens', 'Cached', 'Cost ($)']);
+    expect(indices.hasHeader).toBe(true);
+    expect(indices.date).toBe(0);
+    expect(indices.model).toBe(1);
+    expect(indices.requests).toBe(2);
+    expect(indices.totalTokens).toBe(3);
+    expect(indices.cachedTokens).toBe(4);
+    expect(indices.cost).toBe(5);
   });
 });

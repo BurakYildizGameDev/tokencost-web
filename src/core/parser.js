@@ -43,6 +43,166 @@ export function isSummaryRow(lineText) {
   return SUMMARY_ROW_PATTERN.test(firstCell);
 }
 
+// --- Faz 24: Sütun indeksi otomatik algılama ------------------------------------
+
+/** Başlık kelimesi → alan eşlemesi (öncelik sırası korunur, ASCII'ye katlanmış metinlerle çalışır). */
+const HEADER_KEYWORD_RULES = [
+  ['model', /\bmodel\b/],
+  ['date', /(zaman|tarih|\bdate\b|\btime\b)/],
+  ['cachedTokens', /(onbellek|cache)/],
+  ['billedTokens', /(kota|yansiyan|billed|charged)/],
+  ['requests', /(istek|request|cagri|call)/],
+  ['cost', /(ucret|maliyet|cost|tutar|fiyat|price)/],
+  ['totalTokens', /(toplam|total|token)/],
+];
+
+/** Türkçe harfleri ASCII karşılıklarına katlar (İ→i, ı→i, ş→s, ğ→g, ç→c, ö→o, ü→u). */
+const TURKISH_FOLD_MAP = {
+  'ı': 'i', 'İ': 'i', 'ş': 's', 'Ş': 's', 'ğ': 'g', 'Ğ': 'g',
+  'ç': 'c', 'Ç': 'c', 'ö': 'o', 'Ö': 'o', 'ü': 'u', 'Ü': 'u',
+};
+
+/**
+ * Başlık metnini karşılaştırmaya hazırlar.
+ * NOT: 'İ'.toLowerCase() === 'i̇' (i + birleşik nokta) olduğu için önce Türkçe harfler katlanır.
+ * @param {unknown} cell
+ * @returns {string}
+ */
+function foldHeaderText(cell) {
+  return String(cell)
+    .replace(/[ıİşŞğĞçÇöÖüÜ]/g, (char) => TURKISH_FOLD_MAP[char])
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Başlıksız çıkarımda sayısal hücrelerin doldurulma sırası. */
+const NUMERIC_FIELD_ORDER = [
+  'requests',
+  'totalTokens',
+  'cachedTokens',
+  'billedTokens',
+  'cost',
+];
+
+/** Tüm alanları -1 (bulunamadı) olarak başlatan iskelet üretir. */
+function createColumnIndexMap(hasHeader) {
+  return {
+    date: -1,
+    model: -1,
+    requests: -1,
+    totalTokens: -1,
+    cachedTokens: -1,
+    billedTokens: -1,
+    cost: -1,
+    hasHeader,
+  };
+}
+
+/** Bir başlık hücresinin hangi alana ait olduğunu söyler. */
+function classifyHeaderCell(cell) {
+  const text = foldHeaderText(cell);
+  for (const [key, pattern] of HEADER_KEYWORD_RULES) {
+    if (pattern.test(text)) return key;
+  }
+  return null;
+}
+
+/** Hücre sayısal mı? (para, yüzde, parantez ve boşluklar temizlendikten sonra) */
+function isNumericCell(cell) {
+  const normalized = String(cell).replace(/[\u2014\u2013\u2212]/g, '-');
+  const stripped = normalized.replace(/[$€₺£%()\s]/g, '');
+  if (stripped === '' || !/\d/.test(stripped)) return false;
+  return /^[\d.,+\-]+$/.test(stripped);
+}
+
+/** Para benzeri hücre: sembol içeriyor veya tam 2 ondalıklı ("0,00", "1.25"). */
+function isMoneyCell(cell) {
+  const text = String(cell).trim();
+  if (/[$€₺£]/.test(text)) return true;
+  return /^\d{1,3}[.,]\d{2}$/.test(text) || /^\d+[.,]\d{2}$/.test(text);
+}
+
+/**
+ * Faz 24: Tablo hücrelerinden sütun indekslerini otomatik çıkarır.
+ * Başlık satırı varsa anahtar kelimelere, yoksa veri desenine göre çalışır.
+ * Başlıksız durumda ilk veri satırı asla "başlık" sanılıp yutulmaz.
+ * @param {string[]} cells
+ * @returns {{ date:number, model:number, requests:number, totalTokens:number,
+ *             cachedTokens:number, billedTokens:number, cost:number, hasHeader:boolean }}
+ */
+export function detectColumnIndices(cells) {
+  const list = Array.isArray(cells)
+    ? cells.map((cell) => (cell === undefined || cell === null ? '' : String(cell).trim()))
+    : [];
+  if (list.length === 0) return createColumnIndexMap(false);
+
+  const headerKeys = list.map(classifyHeaderCell).filter((key) => key !== null);
+  const hasHeader = headerKeys.length >= 2 || list.some((cell) => /^model$/.test(foldHeaderText(cell)));
+
+  if (hasHeader) {
+    const indices = createColumnIndexMap(true);
+    list.forEach((cell, position) => {
+      const key = classifyHeaderCell(cell);
+      if (key !== null && indices[key] === -1) indices[key] = position;
+    });
+    return indices;
+  }
+
+  // --- Başlıksız: yapısal çıkarım ---
+  const indices = createColumnIndexMap(false);
+
+  list.forEach((cell, position) => {
+    if (indices.date === -1 && DATE_CELL_PATTERN.test(cell)) indices.date = position;
+  });
+
+  list.forEach((cell, position) => {
+    if (
+      indices.model === -1
+      && position !== indices.date
+      && /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(cell)
+      && !isNumericCell(cell)
+    ) {
+      indices.model = position;
+    }
+  });
+
+  const numericEntries = list
+    .map((cell, position) => ({ cell, position }))
+    .filter(({ cell, position }) => position !== indices.date
+      && position !== indices.model
+      && isNumericCell(cell));
+
+  const reserved = new Set();
+
+  // Yüzde ipucu taşıyan hücre önbellek sütunudur.
+  for (const { cell, position } of numericEntries) {
+    if (indices.cachedTokens === -1 && /\(|%/.test(cell)) {
+      indices.cachedTokens = position;
+      reserved.add(position);
+    }
+  }
+
+  // Para benzeri hücre ücret sütunudur.
+  for (const { cell, position } of numericEntries) {
+    if (indices.cost === -1 && !reserved.has(position) && isMoneyCell(cell)) {
+      indices.cost = position;
+      reserved.add(position);
+    }
+  }
+
+  // Kalan sayısal hücreler sırayla doldurulur: istek → toplam → önbellek → kota → ücret.
+  for (const { position } of numericEntries) {
+    if (reserved.has(position)) continue;
+    const nextKey = NUMERIC_FIELD_ORDER.find((key) => indices[key] === -1);
+    if (!nextKey) break;
+    indices[nextKey] = position;
+    reserved.add(position);
+  }
+
+  return indices;
+}
+
 /** Yüzde değerini 2 ondalık basamağa yuvarlar (number döner). */
 function roundPercent(value) {
   return Number(Number(value).toFixed(2));
