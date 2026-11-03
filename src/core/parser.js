@@ -2,6 +2,8 @@
 // Faz 21 - 25: Metin / tablo / TSV ayrıştırıcı (Saf / Pure Core katmanı).
 // KURAL: Bu dosyada document, window, localStorage veya fetch KULLANILMAZ.
 
+import { createTokenRecord } from './schema.js';
+
 /** Tarih hücresi deseni: "14 Eki", "3 Ocak" vb. (tek boşluk korunur). */
 export const DATE_CELL_PATTERN = /^\d{1,2}\s+[A-Za-zÇĞİÖŞÜçğıöşü]{2,}/;
 
@@ -116,6 +118,16 @@ function isNumericCell(cell) {
   return /^[\d.,+\-]+$/.test(stripped);
 }
 
+/** Yer tutucu hücre: "—", "-" veya "–" (boş önbellek sütunu). Sütun hizasını korur. */
+function isPlaceholderCell(cell) {
+  return /^[\u2014\u2013\u2212-]+$/.test(String(cell).trim());
+}
+
+/** Sayısal ya da yer tutucu hücre mi? (sütun indeksi hizalamasında ikisi de sayılır) */
+function isNumericOrPlaceholderCell(cell) {
+  return isNumericCell(cell) || isPlaceholderCell(cell);
+}
+
 /** Para benzeri hücre: sembol içeriyor veya tam 2 ondalıklı ("0,00", "1.25"). */
 function isMoneyCell(cell) {
   const text = String(cell).trim();
@@ -171,7 +183,7 @@ export function detectColumnIndices(cells) {
     .map((cell, position) => ({ cell, position }))
     .filter(({ cell, position }) => position !== indices.date
       && position !== indices.model
-      && isNumericCell(cell));
+      && isNumericOrPlaceholderCell(cell));
 
   const reserved = new Set();
 
@@ -201,6 +213,132 @@ export function detectColumnIndices(cells) {
   }
 
   return indices;
+}
+
+// --- Faz 25: Toplu metin ayrıştırma orkestratörü --------------------------------
+
+/** Kayıt tekilleştirme anahtarı: tarih + model + istek + toplam token. */
+export function buildRecordSignature(record) {
+  if (!record) return '';
+  return `${record.date}_${record.model}_${record.requests}_${record.totalTokens}`;
+}
+
+/**
+ * Hücreleri bir TokenUsageRecord'a çevirir; veri satırı değilse null döner.
+ * @param {string[]} cells
+ * @param {object} indices
+ * @returns {object|null}
+ */
+function rowToRecord(cells, indices) {
+  if (!Array.isArray(cells) || cells.length < 3) return null;
+
+  const pick = (key) => (indices[key] >= 0 ? cells[indices[key]] : undefined);
+
+  const modelCell = pick('model');
+  if (typeof modelCell !== 'string' || modelCell.trim() === '' || isNumericCell(modelCell)) {
+    return null;
+  }
+
+  // En az iki sayısal hücre yoksa bu satır tablo verisi değildir (kırpıntı metin).
+  const numericCellCount = cells.filter((cell) => isNumericOrPlaceholderCell(cell)).length;
+  if (numericCellCount < 2) return null;
+
+  const requests = Math.round(Math.max(0, sanitizeNumberString(pick('requests'))));
+  let totalTokens = Math.round(Math.max(0, sanitizeNumberString(pick('totalTokens'))));
+
+  const cachedCell = pick('cachedTokens');
+  const { cachedTokens } = parseCachedColumn(cachedCell);
+  let billedTokens = Math.round(Math.max(0, sanitizeNumberString(pick('billedTokens'))));
+
+  // Toplam token boşsa önbellek + kota toplamından türet.
+  if (totalTokens === 0 && (cachedTokens > 0 || billedTokens > 0)) {
+    totalTokens = cachedTokens + billedTokens;
+  }
+
+  // Faz 4 tutarlılık politikası: kota değeri yoksa toplam - önbellek ile türet.
+  if (billedTokens === 0 && totalTokens > cachedTokens) {
+    billedTokens = totalTokens - cachedTokens;
+  }
+
+  try {
+    return createTokenRecord({
+      date: pick('date'),
+      model: modelCell,
+      requests,
+      totalTokens,
+      cachedTokens,
+      billedTokens,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Faz 25: Kullanıcının yapıştırdığı tüm tablo metnini tek geçişte ayrıştırır.
+ * - Başlık satırı ve "Toplam (30 gün)" özet satırı kayıtlara EKLENMEZ (çifte sayım yok).
+ * - Boş satırlar ve tablo dışı kırpıntı metinler skippedLines içinde raporlanır.
+ * @param {string} rawClipboardText
+ * @returns {{ records: object[], parsedSummaryRow: object|null, skippedLines: object[], columnIndices: object|null }}
+ */
+export function parsePastedTableText(rawClipboardText) {
+  const text = typeof rawClipboardText === 'string' ? rawClipboardText : '';
+  const lines = text.split(/\r?\n/);
+
+  const records = [];
+  const skippedLines = [];
+  const seenSignatures = new Set();
+  let parsedSummaryRow = null;
+  let columnIndices = null;
+
+  for (const rawLine of lines) {
+    if (typeof rawLine !== 'string') continue;
+    const line = rawLine.replace(/\u00a0/g, ' ');
+
+    if (line.trim() === '') {
+      skippedLines.push({ line: rawLine, reason: 'EMPTY_LINE' });
+      continue;
+    }
+
+    if (isSummaryRow(line)) {
+      if (parsedSummaryRow === null) {
+        const summaryCells = tokenizeRawLine(line);
+        parsedSummaryRow = { label: summaryCells[0] || line.trim(), cells: summaryCells };
+      } else {
+        skippedLines.push({ line: rawLine, reason: 'DUPLICATE_SUMMARY_ROW' });
+      }
+      continue;
+    }
+
+    const cells = tokenizeRawLine(line);
+    const detected = detectColumnIndices(cells);
+
+    if (detected.hasHeader) {
+      if (columnIndices === null) {
+        columnIndices = detected;
+      } else {
+        skippedLines.push({ line: rawLine, reason: 'DUPLICATE_HEADER_ROW' });
+      }
+      continue;
+    }
+
+    const record = rowToRecord(cells, detected);
+    if (record === null) {
+      skippedLines.push({ line: rawLine, reason: 'UNRECOGNIZED_ROW' });
+      continue;
+    }
+
+    const signature = buildRecordSignature(record);
+    if (seenSignatures.has(signature)) {
+      skippedLines.push({ line: rawLine, reason: 'DUPLICATE_ROW' });
+      continue;
+    }
+
+    seenSignatures.add(signature);
+    records.push(record);
+  }
+
+  return { records, parsedSummaryRow, skippedLines, columnIndices };
 }
 
 /** Yüzde değerini 2 ondalık basamağa yuvarlar (number döner). */

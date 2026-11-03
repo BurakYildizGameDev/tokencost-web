@@ -5,6 +5,7 @@ import { tokenizeRawLine, isSummaryRow } from '../src/core/parser.js';
 import { sanitizeNumberString } from '../src/core/parser.js';
 import { parseCachedColumn } from '../src/core/parser.js';
 import { detectColumnIndices } from '../src/core/parser.js';
+import { parsePastedTableText } from '../src/core/parser.js';
 
 describe('Faz 21: tokenizeRawLine', () => {
   it('sekme ile ayrılmış gerçek satırı tam 7 hücreye ayırır', () => {
@@ -149,5 +150,74 @@ describe('Faz 24: detectColumnIndices', () => {
     expect(indices.totalTokens).toBe(3);
     expect(indices.cachedTokens).toBe(4);
     expect(indices.cost).toBe(5);
+  });
+});
+
+// Kullanıcının 3 ekran görüntüsünden gelen 13 satırlık gerçekçi metin bloğu.
+const TABLE_TEXT = [
+  '14 Eki\tdeepseek-v4.1-flash\t341\t30.811.037\t29.312.128 (%96)\t2.378.273\t0,00',
+  '14 Eki\tglm-5.3\t120\t8.450.123\t6.112.004 (%72)\t2.338.119\t0,00',
+  '13 Eki\tdeepseek-v4.1-flash\t402\t35.120.998\t33.015.777 (%94)\t2.105.221\t0,00',
+  '13 Eki\tmimo-v2.6-pro\t95\t4.882.310\t3.221.004 (%66)\t1.661.306\t0,00',
+  '12 Eki\tdeepseek-v4.1-flash\t288\t21.004.552\t19.112.330 (%91)\t1.892.222\t0,00',
+  '12 Eki\tglm-5.3\t76\t3.220.887\t2.004.112 (%62)\t1.216.775\t0,00',
+  '11 Eki\tmimo-v2.6-pro\t54\t2.114.003\t1.400.221 (%66)\t713.782\t0,00',
+  '11 Eki\tdeepseek-v4.1-flash\t310\t19.887.221\t18.552.110 (%93)\t1.335.111\t0,00',
+  '10 Eki\tclef\t18\t945.221\t—\t945.221\t0,00',
+  '10 Eki\tauto\t12\t510.004\t—\t510.004\t0,00',
+  '9 Eki\tlaya\t7\t204.887\t—\t204.887\t0,00',
+  '9 Eki\tqwen3-asr-1.7b\t5\t0\t0\t0\t0,00',
+  '8 Eki\tqwen3-vl-30b\t22\t1.204.559\t880.334 (%73)\t324.225\t0,00',
+  'Toplam (30 gün)\t1.750\t128.366.801\t115.427.062\t11.940.999\t0,00',
+  '',
+  'kullanım miktarını kartında görebilirsiniz.',
+].join('\n');
+
+describe('Faz 25: parsePastedTableText', () => {
+  it('13 veri satırını çıkarır, Toplam satırını kayıtlara eklemez', () => {
+    const result = parsePastedTableText(TABLE_TEXT);
+    expect(result.records).toHaveLength(13);
+    expect(result.records.some((record) => /toplam/i.test(record.model))).toBe(false);
+    expect(result.parsedSummaryRow).not.toBeNull();
+    expect(result.parsedSummaryRow.label).toContain('Toplam');
+  });
+
+  it('ilk satırın alanlarını doğru eşler', () => {
+    const [first] = parsePastedTableText(TABLE_TEXT).records;
+    expect(first).toMatchObject({
+      date: '14 Eki',
+      model: 'deepseek-v4.1-flash',
+      requests: 341,
+      totalTokens: 30811037,
+      cachedTokens: 29312128,
+      billedTokens: 2378273,
+    });
+  });
+
+  it('boş satırları ve tablo dışı kırpıntı metni skippedLines içinde raporlar', () => {
+    const result = parsePastedTableText(TABLE_TEXT);
+    const reasons = result.skippedLines.map((entry) => entry.reason);
+    expect(reasons).toContain('EMPTY_LINE');
+    expect(reasons).toContain('UNRECOGNIZED_ROW');
+    expect(result.skippedLines.some((entry) => entry.line.includes('kartında görebilirsiniz'))).toBe(true);
+  });
+
+  it('birebir aynı satırı iki kez saymaz (DUPLICATE_ROW)', () => {
+    const duplicated = TABLE_TEXT.split('\n').slice(0, 2).concat(TABLE_TEXT.split('\n')[0]).join('\n');
+    const result = parsePastedTableText(duplicated);
+    expect(result.records).toHaveLength(2);
+    expect(result.skippedLines.some((entry) => entry.reason === 'DUPLICATE_ROW')).toBe(true);
+  });
+
+  it('başlık satırı verilirse columnIndices doldurulur ve kayıtlar yine ayıklanır', () => {
+    const withHeader = [
+      'Zaman dilimi\tModel\tİstek\tToplam token\tÖnbellekten\tKotaya yansıyan\tÜcret ($)',
+      ...TABLE_TEXT.split('\n').slice(0, 2),
+    ].join('\n');
+    const result = parsePastedTableText(withHeader);
+    expect(result.columnIndices).not.toBeNull();
+    expect(result.columnIndices.hasHeader).toBe(true);
+    expect(result.columnIndices.model).toBe(1);
+    expect(result.records).toHaveLength(2);
   });
 });
