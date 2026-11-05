@@ -1,7 +1,8 @@
 // tests/ocr.test.js
 // Faz 26 - 30: Tarayıcı içi OCR motoru testleri (DOM'suz, saf piksel/mock tabanlı).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { preprocessImageData, detectDarkTheme } from '../src/ocr/ocr-engine.js';
+import { createOCRManager } from '../src/ocr/ocr-engine.js';
 
 /** Test için RGBA görüntü üretir: base renk + üzerine yazılan pikseller. */
 function createImageData(width, height, base, points = []) {
@@ -75,5 +76,78 @@ describe('Faz 26: preprocessImageData', () => {
     const result = preprocessImageData(null);
     expect(result.data.length).toBe(0);
     expect(result.isDarkTheme).toBe(false);
+  });
+});
+
+/** Testlerde kullanılan sahte Tesseract kütüphanesi (worker enjekte edilir). */
+function createMockTesseract() {
+  const createdWorkers = [];
+  const lib = {
+    createWorker: vi.fn(async () => {
+      const worker = {
+        setParameters: vi.fn(async () => {}),
+        recognize: vi.fn(async (imageData) => ({ data: { text: 'ok', words: [], imageData } })),
+        terminate: vi.fn(async () => {}),
+      };
+      createdWorkers.push(worker);
+      return worker;
+    }),
+  };
+  return { lib, createdWorkers };
+}
+
+describe('Faz 27: createOCRManager', () => {
+  it('arka arkaya 3 görselde tek worker kullanır (singleton)', async () => {
+    const { lib, createdWorkers } = createMockTesseract();
+    const manager = createOCRManager(lib);
+    const image = createImageData(2, 2, LIGHT_BACKGROUND);
+
+    await manager.recognize(image);
+    await manager.recognize(image);
+    await manager.recognize(image);
+
+    expect(lib.createWorker).toHaveBeenCalledTimes(1);
+    expect(createdWorkers).toHaveLength(1);
+    expect(createdWorkers[0].recognize).toHaveBeenCalledTimes(3);
+    expect(manager.getRecognizeCount()).toBe(3);
+  });
+
+  it('terminate() worker belleğini temizler ve yeni çağrıyı reddeder', async () => {
+    const { lib, createdWorkers } = createMockTesseract();
+    const manager = createOCRManager(lib);
+    const image = createImageData(2, 2, LIGHT_BACKGROUND);
+
+    await manager.recognize(image);
+    await manager.terminate();
+
+    expect(createdWorkers[0].terminate).toHaveBeenCalledTimes(1);
+    expect(manager.isTerminated()).toBe(true);
+    expect(manager.getWorker()).toBeNull();
+    await expect(manager.recognize(image)).rejects.toThrow('ERR_OCR_MANAGER_TERMINATED');
+  });
+
+  it('ilerleme logger callbackini tesseract kütüphanesine aktarır', async () => {
+    const { lib } = createMockTesseract();
+    const manager = createOCRManager(lib);
+    const logger = vi.fn();
+    await manager.recognize(createImageData(2, 2, LIGHT_BACKGROUND), { logger });
+
+    const options = lib.createWorker.mock.calls[0][2];
+    expect(options.logger).toBe(logger);
+    expect(lib.createWorker.mock.calls[0][0]).toBe('eng');
+  });
+
+  it('geçersiz kütüphane enjeksiyonunda TypeError fırlatır', () => {
+    expect(() => createOCRManager(null)).toThrow(TypeError);
+    expect(() => createOCRManager({})).toThrow('ERR_INVALID_TESSERACT_LIB');
+  });
+
+  it('preprocess: false verilirse piksel ön işleme atlanır', async () => {
+    const { lib, createdWorkers } = createMockTesseract();
+    const manager = createOCRManager(lib);
+    const image = createImageData(2, 2, DARK_NAVY);
+
+    await manager.recognize(image, { preprocess: false });
+    expect(createdWorkers[0].recognize.mock.calls[0][0]).toBe(image);
   });
 });

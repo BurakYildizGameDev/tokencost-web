@@ -50,6 +50,84 @@ export function detectDarkTheme(imageData) {
 }
 
 /**
+ * Faz 27: Tesseract worker yaşam döngüsünü yönetir.
+ * - Lazy initialization: worker ilk `recognize` çağrısında oluşturulur.
+ * - Singleton: arka arkaya görseller yüklendiğinde aynı worker yeniden kullanılır.
+ * - terminate(): worker belleği temizlenir, sonraki çağrı hata verir.
+ * @param {{ createWorker: Function }} tesseractLib Testlerde mock'lanabilmesi için dışarıdan enjekte edilir.
+ * @returns {object}
+ */
+export function createOCRManager(tesseractLib) {
+  if (!tesseractLib || typeof tesseractLib.createWorker !== 'function') {
+    throw new TypeError('ERR_INVALID_TESSERACT_LIB');
+  }
+
+  let workerPromise = null;
+  let terminated = false;
+  let recognizeCount = 0;
+
+  const ensureWorker = (logger) => {
+    if (workerPromise === null) {
+      const workerOptions = typeof logger === 'function' ? { logger } : {};
+      workerPromise = Promise.resolve(tesseractLib.createWorker('eng', 1, workerOptions))
+        .then(async (worker) => {
+          if (worker && typeof worker.setParameters === 'function') {
+            await worker.setParameters({ tessedit_pageseg_mode: '6' });
+          }
+          return worker;
+        });
+    }
+    return workerPromise;
+  };
+
+  return {
+    /**
+     * Görüntüyü metne çevirir (worker tek seferlik oluşturulur).
+     * @param {object} imageData
+     * @param {{ logger?: Function, preprocess?: boolean }} [options]
+     * @returns {Promise<object>}
+     */
+    async recognize(imageData, options = {}) {
+      if (terminated) throw new Error('ERR_OCR_MANAGER_TERMINATED');
+
+      const worker = await ensureWorker(options.logger ?? null);
+      recognizeCount += 1;
+
+      const prepared = options.preprocess === false ? imageData : preprocessImageData(imageData);
+      return worker.recognize(prepared);
+    },
+
+    /** Test ve teşhis için: worker sözü (henüz oluşturulmadıysa null). */
+    getWorker() {
+      return workerPromise;
+    },
+
+    /** Kaç kez recognize çağrıldığı. */
+    getRecognizeCount() {
+      return recognizeCount;
+    },
+
+    /** Worker serbest bırakıldı mı? */
+    isTerminated() {
+      return terminated;
+    },
+
+    /** Worker'ı sonlandırır ve belleği temizler. */
+    async terminate() {
+      if (terminated) return;
+      terminated = true;
+      const pending = workerPromise;
+      workerPromise = null;
+      if (!pending) return;
+      const worker = await pending.catch(() => null);
+      if (worker && typeof worker.terminate === 'function') {
+        await worker.terminate();
+      }
+    },
+  };
+}
+
+/**
  * Faz 26: Tesseract için görüntüyü ön işler.
  * 1. Koyu tema algılanırsa renkleri tersine çevirir (beyaz zemin + siyah yazı).
  * 2. Eşikleme (binarization) uygular; soluk gri yazılar invert sonrası korunur.
