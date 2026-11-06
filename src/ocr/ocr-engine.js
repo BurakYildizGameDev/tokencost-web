@@ -169,3 +169,71 @@ export function preprocessImageData(imageData, options = {}) {
 
   return { data: output, width, height, isDarkTheme, threshold: limit };
 }
+
+// --- Faz 28: Kelime kutucuklarından (BBox) tablo satırı kurma -------------------
+
+/** Aynı satırdaki kelimeler arasında sütun ayırıcı sayılan yatay boşluk eşiği (px). */
+export const COLUMN_GAP_THRESHOLD = 15;
+
+/**
+ * Faz 28: Tesseract kelime kutucuklarını tablo satırlarına dönüştürür.
+ * - y0 koordinatı yTolerance (±10 px) içinde olan kelimeler aynı satırda toplanır (Y kümeleme).
+ * - Satır içinde kelimeler x0'a göre soldan sağa sıralanır.
+ * - Aralarındaki boşluk COLUMN_GAP_THRESHOLD'dan büyükse araya \t (sütun) konur.
+ * @param {Array<{ text: string, bbox: { x0:number, y0:number, x1:number, y1:number } }>} words
+ * @param {number} [yTolerance=10]
+ * @returns {string[]} Yukarıdan aşağıya, soldan sağa tablo satırları
+ */
+export function reconstructTableLinesFromWords(words, yTolerance = 10) {
+  if (!Array.isArray(words) || words.length === 0) return [];
+
+  const tolerance = Number.isFinite(Number(yTolerance)) ? Math.abs(Number(yTolerance)) : 10;
+
+  const items = words
+    .filter((word) => word && word.bbox && typeof word.text === 'string' && word.text.trim() !== '')
+    .map((word) => {
+      const x0 = Number(word.bbox.x0) || 0;
+      const x1 = Number(word.bbox.x1) || x0;
+      const y0 = Number(word.bbox.y0) || 0;
+      const y1 = Number(word.bbox.y1) || y0;
+      const centerY = Number.isFinite((y0 + y1) / 2) ? (y0 + y1) / 2 : y0;
+      return { text: word.text.trim(), x0, x1, y0, y1, centerY };
+    })
+    .sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+
+  if (items.length === 0) return [];
+
+  const rows = [];
+  for (const item of items) {
+    // En yakın dikey küme bulunur.
+    let target = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const row of rows) {
+      const distance = Math.abs(row.centerY - item.centerY);
+      if (distance <= tolerance && distance < bestDistance) {
+        bestDistance = distance;
+        target = row;
+      }
+    }
+
+    if (target) {
+      target.words.push(item);
+      target.centerY = target.words.reduce((sum, word) => sum + word.centerY, 0) / target.words.length;
+    } else {
+      rows.push({ centerY: item.centerY, words: [item] });
+    }
+  }
+
+  rows.sort((a, b) => a.centerY - b.centerY);
+
+  return rows.map((row) => {
+    const sorted = [...row.words].sort((a, b) => a.x0 - b.x0);
+    let line = sorted[0].text;
+    for (let index = 1; index < sorted.length; index += 1) {
+      const gap = sorted[index].x0 - sorted[index - 1].x1;
+      line += `${gap > COLUMN_GAP_THRESHOLD ? '\t' : ' '}${sorted[index].text}`;
+    }
+    return line;
+  });
+}
+

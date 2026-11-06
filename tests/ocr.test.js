@@ -3,6 +3,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { preprocessImageData, detectDarkTheme } from '../src/ocr/ocr-engine.js';
 import { createOCRManager } from '../src/ocr/ocr-engine.js';
+import { reconstructTableLinesFromWords } from '../src/ocr/ocr-engine.js';
 
 /** Test için RGBA görüntü üretir: base renk + üzerine yazılan pikseller. */
 function createImageData(width, height, base, points = []) {
@@ -149,5 +150,59 @@ describe('Faz 27: createOCRManager', () => {
 
     await manager.recognize(image, { preprocess: false });
     expect(createdWorkers[0].recognize.mock.calls[0][0]).toBe(image);
+  });
+});
+
+/** BBox'ı kısa yoldan üretir. */
+function word(text, x0, y0, x1, y1) {
+  return { text, bbox: { x0, y0, x1, y1 } };
+}
+
+describe('Faz 28: reconstructTableLinesFromWords', () => {
+  it('aynı satırdaki kelimeleri (yTolerance içinde) tek satırda toplar', () => {
+    const words = [
+      word('14', 10, 100, 25, 120),
+      word('Eki', 30, 102, 55, 122),
+      word('deepseek-v4.1-flash', 200, 100, 380, 120),
+      word('341', 450, 100, 490, 120),
+      word('13', 10, 160, 25, 180),
+      word('Eki', 30, 161, 55, 181),
+      word('glm-5.3', 200, 160, 300, 180),
+    ];
+
+    expect(reconstructTableLinesFromWords(words)).toEqual([
+      '14 Eki\tdeepseek-v4.1-flash\t341',
+      '13 Eki\tglm-5.3',
+    ]);
+  });
+
+  it('kelimeler karışık sırada gelse de soldan sağa / yukarıdan aşağıya dizer', () => {
+    const words = [
+      word('341', 450, 100, 490, 120),
+      word('Eki', 30, 102, 55, 122),
+      word('glm-5.3', 200, 160, 300, 180),
+      word('deepseek-v4.1-flash', 200, 100, 380, 120),
+      word('14', 10, 100, 25, 120),
+      word('13', 10, 160, 25, 180),
+      word('Eki', 30, 161, 55, 181),
+    ];
+
+    expect(reconstructTableLinesFromWords(words)[0]).toBe('14 Eki\tdeepseek-v4.1-flash\t341');
+    expect(reconstructTableLinesFromWords(words)[1]).toBe('13 Eki\tglm-5.3');
+  });
+
+  it('yakın olmayan dikey kelimeleri ayrı satırlara böler (yTolerance)', () => {
+    const words = [
+      word('alpha', 10, 10, 60, 30),
+      word('beta', 10, 60, 50, 80),
+    ];
+    expect(reconstructTableLinesFromWords(words)).toEqual(['alpha', 'beta']);
+    expect(reconstructTableLinesFromWords(words, 60)).toEqual(['alpha beta']);
+  });
+
+  it('boş girdide ve geçersiz bbox taşıyan kayıtlarda çökmez', () => {
+    expect(reconstructTableLinesFromWords([])).toEqual([]);
+    expect(reconstructTableLinesFromWords(undefined)).toEqual([]);
+    expect(reconstructTableLinesFromWords([{ text: 'x' }, { text: '   ' }])).toEqual([]);
   });
 });
