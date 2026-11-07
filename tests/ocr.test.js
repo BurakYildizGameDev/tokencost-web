@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { preprocessImageData, detectDarkTheme } from '../src/ocr/ocr-engine.js';
 import { createOCRManager } from '../src/ocr/ocr-engine.js';
 import { reconstructTableLinesFromWords } from '../src/ocr/ocr-engine.js';
+import { cleanOCRTableArtefacts } from '../src/ocr/ocr-engine.js';
 
 /** Test için RGBA görüntü üretir: base renk + üzerine yazılan pikseller. */
 function createImageData(width, height, base, points = []) {
@@ -204,5 +205,35 @@ describe('Faz 28: reconstructTableLinesFromWords', () => {
     expect(reconstructTableLinesFromWords([])).toEqual([]);
     expect(reconstructTableLinesFromWords(undefined)).toEqual([]);
     expect(reconstructTableLinesFromWords([{ text: 'x' }, { text: '   ' }])).toEqual([]);
+  });
+});
+
+describe('Faz 29: cleanOCRTableArtefacts', () => {
+  it('sayısal hücrelerde harf→rakam düzeltmesi yapar (O→0, l→1)', () => {
+    expect(cleanOCRTableArtefacts('3O.8ll.O37')).toBe('30.811.037');
+    expect(cleanOCRTableArtefacts('29.3l2.l28 (%96)')).toBe('29.312.128 (%96)');
+    expect(cleanOCRTableArtefacts('l079')).toBe('1079');
+  });
+
+  it('bozuk model adlarını düzeltir (gIm→glm, v4.l→v4.1)', () => {
+    expect(cleanOCRTableArtefacts('deepseek-v4.l-flash')).toBe('deepseek-v4.1-flash');
+    expect(cleanOCRTableArtefacts('gIm-5.3')).toBe('glm-5.3');
+  });
+
+  it('model adındaki gerçek harfleri rakama çevirmez (qwen3-vl-30b)', () => {
+    expect(cleanOCRTableArtefacts('qwen3-vl-30b')).toBe('qwen3-vl-30b');
+    expect(cleanOCRTableArtefacts('deepseek-v4.1-flash')).toBe('deepseek-v4.1-flash');
+  });
+
+  it('tam OCR satırını sütun ayırıcılarını koruyarak temizler', () => {
+    const dirty = '14 Eki\tdeepseek-v4.l-flash\t341\t3O.8ll.O37\t29.3l2.l28 (%96)\t2.378.273\t0,00';
+    expect(cleanOCRTableArtefacts(dirty)).toBe(
+      '14 Eki\tdeepseek-v4.1-flash\t341\t30.811.037\t29.312.128 (%96)\t2.378.273\t0,00',
+    );
+  });
+
+  it('boşlukla ayrılmış satırlarda da ayırıcıyı korur', () => {
+    const dirty = '14 Eki   deepseek-v4.l-flash   3O.8ll.O37';
+    expect(cleanOCRTableArtefacts(dirty)).toBe('14 Eki   deepseek-v4.1-flash   30.811.037');
   });
 });

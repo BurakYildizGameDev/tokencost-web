@@ -175,6 +175,64 @@ export function preprocessImageData(imageData, options = {}) {
 /** Aynı satırdaki kelimeler arasında sütun ayırıcı sayılan yatay boşluk eşiği (px). */
 export const COLUMN_GAP_THRESHOLD = 15;
 
+// --- Faz 29: OCR metin düzeltme filtresi ---------------------------------------
+
+/** Sayısal hücrelerde OCR'ın karıştırdığı harf → rakam eşlemesi. */
+const OCR_DIGIT_SUBSTITUTIONS = {
+  O: '0', o: '0', D: '0',
+  l: '1', I: '1', '|': '1',
+  S: '5', Z: '2', B: '8', G: '6',
+};
+
+/** Model adı hücrelerinde bilinen OCR bozulmaları (sadece harf bağlamında uygulanır). */
+const OCR_MODEL_FIXES = [
+  [/\bg[I1l]m\b/g, 'glm'],
+  [/\bg1m\b/g, 'glm'],
+  [/(\d)\.l(?=[-.\s]|$)/g, '$1.1'],
+];
+
+/**
+ * Hücre sayısal mı? (Harf→rakam düzeltmesi SADECE bu hücrelerde uygulanır.)
+ * Sayı ağırlıklı hücre = rakam sayısı, harf sayısından az değil.
+ */
+function isDigitDominantCell(cell) {
+  const digits = (cell.match(/\d/g) || []).length;
+  if (digits === 0) return false;
+  const letters = (cell.match(/[A-Za-z]/g) || []).length;
+  return digits >= letters;
+}
+
+/** Tek hücreyi bağlama duyarlı olarak düzeltir. */
+function cleanOCRCell(cell) {
+  if (cell === '') return cell;
+
+  if (isDigitDominantCell(cell)) {
+    return cell.replace(/[A-Za-z|]/g, (char) => OCR_DIGIT_SUBSTITUTIONS[char] ?? char);
+  }
+
+  return OCR_MODEL_FIXES.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), cell);
+}
+
+/**
+ * Faz 29: OCR çıktısındaki tablo gürültülerini temizler.
+ * - Sayısal hücrelerde O/o→0, l/I→1, S→5 gibi harf→rakam düzeltmeleri yapılır.
+ * - Model adı hücrelerinde bilinen bozulmalar düzeltilir (gIm→glm, v4.l→v4.1).
+ * - Model adındaki gerçek harfler (qwen3-vl-30b içindeki 'l') KORUNUR.
+ * Sütun ayırıcıları (sekme / 2+ boşluk) aynen geri yazılır.
+ * @param {string} rawLineText
+ * @returns {string}
+ */
+export function cleanOCRTableArtefacts(rawLineText) {
+  if (typeof rawLineText !== 'string' || rawLineText === '') return typeof rawLineText === 'string' ? rawLineText : '';
+
+  // Ayırıcıları koruyarak böl: tek indeksler ayırıcı, çift indeksler hücredir.
+  const parts = rawLineText.split(/(\t+|\s{2,})/);
+  return parts
+    .map((part, position) => (position % 2 === 1 ? part : cleanOCRCell(part)))
+    .join('');
+}
+
+
 /**
  * Faz 28: Tesseract kelime kutucuklarını tablo satırlarına dönüştürür.
  * - y0 koordinatı yTolerance (±10 px) içinde olan kelimeler aynı satırda toplanır (Y kümeleme).
