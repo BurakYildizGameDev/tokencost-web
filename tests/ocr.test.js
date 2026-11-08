@@ -5,6 +5,7 @@ import { preprocessImageData, detectDarkTheme } from '../src/ocr/ocr-engine.js';
 import { createOCRManager } from '../src/ocr/ocr-engine.js';
 import { reconstructTableLinesFromWords } from '../src/ocr/ocr-engine.js';
 import { cleanOCRTableArtefacts } from '../src/ocr/ocr-engine.js';
+import { deduplicateRecords, processMultipleImagesToRecords } from '../src/ocr/ocr-engine.js';
 
 /** Test için RGBA görüntü üretir: base renk + üzerine yazılan pikseller. */
 function createImageData(width, height, base, points = []) {
@@ -235,5 +236,136 @@ describe('Faz 29: cleanOCRTableArtefacts', () => {
   it('boşlukla ayrılmış satırlarda da ayırıcıyı korur', () => {
     const dirty = '14 Eki   deepseek-v4.l-flash   3O.8ll.O37';
     expect(cleanOCRTableArtefacts(dirty)).toBe('14 Eki   deepseek-v4.1-flash   30.811.037');
+  });
+});
+
+const ROW_A = '14 Eki\tdeepseek-v4.1-flash\t341\t30.811.037\t29.312.128 (%96)\t2.378.273\t0,00';
+const ROW_B = '13 Eki\tglm-5.3\t120\t8.450.123\t6.112.004 (%72)\t2.338.119\t0,00';
+const ROW_C = '12 Eki\tmimo-v2.6-pro\t95\t4.882.310\t3.221.004 (%66)\t1.661.306\t0,00';
+
+/** Sahte OCR yöneticisi: her çağrıda verilen yanıtı (veya fırlatılan hatayı) üretir. */
+function createFakeOCRManager(responses) {
+  let callCount = 0;
+  return {
+    recognize: vi.fn(async () => {
+      const response = responses[callCount];
+      callCount += 1;
+      if (typeof response === 'function') return response();
+      return response;
+    }),
+  };
+}
+
+/** 1x1 geçerli görüntü girdisi (canvas gerekmez). */
+function imageFile(name) {
+  return { name, data: new Uint8ClampedArray(4), width: 1, height: 1 };
+}
+
+describe('Faz 30: deduplicateRecords', () => {
+  it('örtüşen (scroll overlap) satırları tekilleştirir, ilk kaydı korur', () => {
+    const first = { date: '6 Eki', model: 'glm-5.3', requests: 42, totalTokens: 1000, id: 'a' };
+    const duplicate = { date: '6 Eki', model: 'glm-5.3', requests: 42, totalTokens: 1000, id: 'b' };
+    const other = { date: '5 Eki', model: 'glm-5.3', requests: 42, totalTokens: 1000, id: 'c' };
+
+    expect(deduplicateRecords([first, duplicate, other])).toEqual([first, other]);
+  });
+
+  it('boş girdi ve geçersiz kayıtlarda çökmez', () => {
+    expect(deduplicateRecords()).toEqual([]);
+    expect(deduplicateRecords([null, undefined])).toEqual([]);
+  });
+});
+
+describe('Faz 30: processMultipleImagesToRecords', () => {
+  it('3 parçalı ekran görüntüsünü sırayla okur, örtüşeni tekilleştirir', async () => {
+    const manager = createFakeOCRManager([
+      { data: { text: `${ROW_A}\n${ROW_B}` } },
+      { data: { text: `${ROW_B}\n${ROW_C}` } },
+      { data: { text: ROW_C } },
+    ]);
+
+    const result = await processMultipleImagesToRecords(
+      [imageFile('image1.png'), imageFile('image2.png'), imageFile('image3.png')],
+      manager,
+    );
+
+    expect(result.records).toHaveLength(3);
+    expect(result.records.map((record) => record.model)).toEqual([
+      'deepseek-v4.1-flash',
+      'glm-5.3',
+      'mimo-v2.6-pro',
+    ]);
+    expect(result.skippedDuplicates).toBe(2);
+    expect(result.errors).toEqual([]);
+    expect(manager.recognize).toHaveBeenCalledTimes(3);
+  });
+
+  it('BBox (words) çıktısını sütunlara bölerek ayrıştırır', async () => {
+    const manager = createFakeOCRManager([
+      {
+        data: {
+          words: [
+            word('14', 10, 100, 25, 120),
+            word('Eki', 30, 100, 55, 120),
+            word('deepseek-v4.1-flash', 200, 100, 380, 120),
+            word('341', 450, 100, 490, 120),
+            word('3O.8ll.O37', 520, 100, 640, 120),
+            word('29.3l2.l28', 670, 100, 780, 120),
+            word('(%96)', 790, 100, 830, 120),
+            word('2.378.273', 860, 100, 950, 120),
+            word('0,00', 980, 100, 1020, 120),
+          ],
+        },
+      },
+    ]);
+
+    const result = await processMultipleImagesToRecords([imageFile('image1.png')], manager);
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      date: '14 Eki',
+      model: 'deepseek-v4.1-flash',
+      requests: 341,
+      totalTokens: 30811037,
+      cachedTokens: 29312128,
+      billedTokens: 2378273,
+    });
+  });
+
+  it('ilerleme bildirimlerini (onProgress) yüzdeyle birlikte gönderir', async () => {
+    const manager = createFakeOCRManager([
+      { data: { text: ROW_A } },
+      { data: { text: ROW_B } },
+    ]);
+    const progress = [];
+
+    await processMultipleImagesToRecords(
+      [imageFile('image1.png'), imageFile('image2.png')],
+      manager,
+      (payload) => progress.push(payload),
+    );
+
+    expect(progress.some((entry) => entry.step === 'recognize' && entry.total === 2)).toBe(true);
+    expect(progress[progress.length - 1]).toMatchObject({ step: 'complete', percentage: 100 });
+  });
+
+  it('okunamayan görselde akışı durdurmaz, hatayı raporlar', async () => {
+    const manager = createFakeOCRManager([
+      { data: { text: ROW_A } },
+      () => { throw new Error('OCR_FAILED'); },
+      { data: { text: ROW_B } },
+    ]);
+
+    const result = await processMultipleImagesToRecords(
+      [imageFile('image1.png'), imageFile('image2.png'), imageFile('image3.png')],
+      manager,
+    );
+
+    expect(result.records).toHaveLength(2);
+    expect(result.errors).toEqual([{ file: 'image2.png', message: 'OCR_FAILED' }]);
+  });
+
+  it('geçersiz ocrManager enjeksiyonunda TypeError fırlatır', async () => {
+    await expect(processMultipleImagesToRecords([], null)).rejects.toThrow(TypeError);
   });
 });

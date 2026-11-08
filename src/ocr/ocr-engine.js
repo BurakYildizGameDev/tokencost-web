@@ -3,6 +3,8 @@
 // KURAL: Bu dosyada document/canvas KULLANILMAZ; tüm görüntü işlemleri saf piksel
 //        ({ data: Uint8ClampedArray, width, height }) üzerinde çalışır.
 
+import { parsePastedTableText } from '../core/parser.js';
+
 /** Varsayılan ön işleme seçenekleri. */
 export const DEFAULT_PREPROCESS_OPTIONS = Object.freeze({
   invertDarkTheme: true,
@@ -231,6 +233,120 @@ export function cleanOCRTableArtefacts(rawLineText) {
     .map((part, position) => (position % 2 === 1 ? part : cleanOCRCell(part)))
     .join('');
 }
+
+// --- Faz 30: Çoklu görselden tablo çıkarım orkestratörü ------------------------
+
+/**
+ * Faz 30: Kayıtları (tarih, model, istek, toplam token) dörtlüsüne göre tekilleştirir.
+ * Uzun tablolar kaydırılarak 2-3 ekran görüntüsü halinde alındığında son satır
+ * tekrar okunur (scroll overlap); bu mükerrer satırlar burada elenir.
+ * @param {object[]} records
+ * @returns {object[]}
+ */
+export function deduplicateRecords(records = []) {
+  if (!Array.isArray(records)) return [];
+
+  const seen = new Set();
+  const unique = [];
+
+  for (const record of records) {
+    if (!record) continue;
+    const key = `${record.date}_${record.model}_${record.requests}_${record.totalTokens}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(record);
+  }
+
+  return unique;
+}
+
+/** OCR'a verilecek görüntü verisini çözer (canvas DIŞINDA, enjekte edilebilir biçim). */
+function resolveImageData(imageFile) {
+  if (!imageFile) throw new Error('ERR_EMPTY_IMAGE_FILE');
+  if (imageFile.imageData) return imageFile.imageData;
+  if (imageFile.data && Number(imageFile.width) > 0) return imageFile;
+  if (typeof imageFile.getImageData === 'function') return imageFile.getImageData();
+  throw new Error('ERR_UNSUPPORTED_IMAGE_INPUT');
+}
+
+/** Tesseract sonucundan tablo metnini üretir (BBox varsa sütunlar korunur). */
+function extractTableText(ocrResult) {
+  const data = ocrResult && ocrResult.data ? ocrResult.data : ocrResult;
+  const words = data && Array.isArray(data.words) ? data.words : [];
+
+  if (words.length > 0) {
+    return reconstructTableLinesFromWords(words).join('\n');
+  }
+  return typeof (data && data.text) === 'string' ? data.text : '';
+}
+
+/**
+ * Faz 30: Birden çok ekran görüntüsünü sırayla OCR'dan geçirip tek kayıt listesine indirger.
+ * - Her görsel: ön işleme → recognize → satır yeniden kurma → OCR düzeltme → ayrıştırma.
+ * - Örtüşen (mükerrer) satırlar otomatik tekilleştirilir.
+ * - Bir görsel okunamazsa akış durmaz; hata `errors` içinde raporlanır.
+ * @param {Array<object>} imageFiles
+ * @param {object} ocrManager createOCRManager() çıktısı (enjekte edilir)
+ * @param {(progress: { step:string, index:number, total:number, percentage:number, message:string }) => void} [onProgress]
+ * @returns {Promise<{ records: object[], skippedDuplicates: number, errors: Array<{ file:string, message:string }> }>}
+ */
+export async function processMultipleImagesToRecords(imageFiles, ocrManager, onProgress) {
+  if (!ocrManager || typeof ocrManager.recognize !== 'function') {
+    throw new TypeError('ERR_INVALID_OCR_MANAGER');
+  }
+
+  const files = Array.isArray(imageFiles) ? imageFiles : [];
+  const total = files.length;
+  const collected = [];
+  const errors = [];
+  const notify = (payload) => {
+    if (typeof onProgress === 'function') onProgress(payload);
+  };
+
+  for (let index = 0; index < total; index += 1) {
+    const imageFile = files[index];
+    const label = `Görsel ${index + 1}/${total}`;
+    const startPercentage = total > 0 ? Math.round((index / total) * 100) : 0;
+
+    try {
+      notify({ step: 'preprocess', index: index + 1, total, percentage: startPercentage, message: `${label} ön işleniyor...` });
+      const imageData = resolveImageData(imageFile);
+
+      notify({ step: 'recognize', index: index + 1, total, percentage: startPercentage, message: `${label} okunuyor...` });
+      const ocrResult = await ocrManager.recognize(imageData);
+
+      const tableText = extractTableText(ocrResult);
+      const cleanedText = tableText.split(/\r?\n/).map(cleanOCRTableArtefacts).join('\n');
+      const parsed = parsePastedTableText(cleanedText);
+      collected.push(...parsed.records);
+
+      notify({
+        step: 'done',
+        index: index + 1,
+        total,
+        percentage: total > 0 ? Math.round(((index + 1) / total) * 100) : 100,
+        message: `${label} tamamlandı (${parsed.records.length} satır).`,
+      });
+    } catch (error) {
+      const message = (error && error.message) || String(error);
+      errors.push({ file: (imageFile && imageFile.name) || `index-${index}`, message });
+      notify({ step: 'error', index: index + 1, total, percentage: startPercentage, message: `${label} okunamadı: ${message}` });
+    }
+  }
+
+  const records = deduplicateRecords(collected);
+
+  notify({
+    step: 'complete',
+    index: total,
+    total,
+    percentage: 100,
+    message: `${records.length} satır çıkarıldı.`,
+  });
+
+  return { records, skippedDuplicates: collected.length - records.length, errors };
+}
+
 
 
 /**
