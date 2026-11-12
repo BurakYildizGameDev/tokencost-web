@@ -8,7 +8,7 @@ import {
   filterAcceptedFiles,
   ACCEPTED_FILE_EXTENSIONS,
 } from '../src/ui/input-handler.js';
-import { renderUsageTable } from '../src/ui/components.js';
+import { renderUsageTable, updateProgressBanner } from '../src/ui/components.js';
 import { createAppStore } from '../src/ui/store.js';
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
 
@@ -422,5 +422,75 @@ describe('Faz 33: renderUsageTable - satır ekleme/silme ve store aboneliği', (
     store.clearRecords();
     // Abonelik bırakıldığı için DOM'daki satır korunur.
     expect(container.querySelectorAll('tbody tr[data-row-id]')).toHaveLength(1);
+  });
+});
+
+describe('Faz 34: updateProgressBanner', () => {
+  it('yüzdeyi ve mesajı erişilebilir ilerleme çubuğuna yazar', () => {
+    const banner = createContainer();
+    updateProgressBanner(banner, {
+      step: 'ocr',
+      percentage: 65,
+      message: 'Görsel 2/3 okunuyor...',
+      isVisible: true,
+    });
+
+    const bar = banner.querySelector('[role="progressbar"]');
+    expect(bar.getAttribute('aria-valuenow')).toBe('65');
+    expect(bar.getAttribute('aria-valuemin')).toBe('0');
+    expect(bar.getAttribute('aria-valuemax')).toBe('100');
+    expect(bar.getAttribute('aria-label')).toBe('OCR ilerlemesi');
+
+    const fill = banner.querySelector('.progress-bar-fill');
+    expect(fill.style.width).toBe('65%');
+    expect(fill.getAttribute('style')).toContain('width: 65%');
+
+    expect(banner.querySelector('.progress-message').textContent).toBe('Görsel 2/3 okunuyor...');
+    expect(banner.dataset.step).toBe('ocr');
+    expect(banner.classList.contains('hidden')).toBe(false);
+  });
+
+  it('isVisible false olduğunda hidden sınıfı eklenir, sonra kaldırılabilir', () => {
+    const banner = createContainer();
+    updateProgressBanner(banner, { percentage: 0, message: '', isVisible: false });
+    expect(banner.classList.contains('hidden')).toBe(true);
+
+    updateProgressBanner(banner, { percentage: 100, message: 'Bitti', isVisible: true });
+    expect(banner.classList.contains('hidden')).toBe(false);
+  });
+
+  it('yüzdeyi 0-100 aralığına kırpar, geçersiz değerde 0 kullanır', () => {
+    const banner = createContainer();
+
+    updateProgressBanner(banner, { percentage: 150, message: 'a' });
+    expect(banner.querySelector('.progress-bar-fill').style.width).toBe('100%');
+    expect(banner.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')).toBe('100');
+
+    updateProgressBanner(banner, { percentage: -20, message: 'b' });
+    expect(banner.querySelector('.progress-bar-fill').style.width).toBe('0%');
+
+    updateProgressBanner(banner, { percentage: 'abc', message: 'c' });
+    expect(banner.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')).toBe('0');
+  });
+
+  it('mesajı textContent ile yazar (XSS koruması)', () => {
+    const banner = createContainer();
+    updateProgressBanner(banner, { percentage: 10, message: '<img src=x onerror=alert(1)>' });
+
+    expect(banner.querySelector('.progress-message').textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(banner.querySelector('.progress-message img')).toBeNull();
+    expect(banner.querySelectorAll('img')).toHaveLength(0);
+  });
+
+  it('başlığı bir kez oluşturur (yeniden çizmez) ve geçersiz kapsayıcıda hata verir', () => {
+    const banner = createContainer();
+    updateProgressBanner(banner, { percentage: 10, message: 'ilk' });
+    const messageEl = banner.querySelector('.progress-message');
+
+    updateProgressBanner(banner, { percentage: 40, message: 'ikinci' });
+
+    expect(banner.querySelectorAll('.progress-message')).toHaveLength(1);
+    expect(banner.querySelector('.progress-message')).toBe(messageEl);
+    expect(() => updateProgressBanner(null, {})).toThrow(TypeError);
   });
 });

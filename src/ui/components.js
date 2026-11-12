@@ -385,4 +385,86 @@ export function renderUsageTable(containerEl, calculatedRecords, store) {
   };
 }
 
+/** İlerleme çubuğu için erişilebilirlik (ARIA) etiketi. */
+export const PROGRESS_ARIA_LABEL = 'OCR ilerlemesi';
+
+/** Yüzdeyi 0-100 aralığına sıkıştırır (geçersiz/NaN değerlerde 0 döner). */
+function clampPercentage(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.min(100, Math.max(0, Math.round(numeric)));
+}
+
+/** İlerleme başlığının DOM iskeletini bir kez oluşturur. */
+function ensureProgressBanner(bannerEl) {
+  const existing = bannerEl.querySelector('.progress-banner');
+  if (existing) {
+    return {
+      bar: existing.querySelector('[role="progressbar"]'),
+      fill: existing.querySelector('.progress-bar-fill'),
+      messageEl: existing.querySelector('.progress-message'),
+    };
+  }
+
+  const doc = bannerEl.ownerDocument;
+
+  const wrapper = doc.createElement('div');
+  wrapper.className = 'progress-banner';
+  wrapper.setAttribute('role', 'status');
+  wrapper.setAttribute('aria-live', 'polite');
+
+  const bar = doc.createElement('div');
+  bar.className = 'progress-bar';
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', '100');
+  bar.setAttribute('aria-valuenow', '0');
+  bar.setAttribute('aria-label', PROGRESS_ARIA_LABEL);
+
+  const fill = doc.createElement('div');
+  fill.className = 'progress-bar-fill';
+  fill.style.width = '0%';
+  bar.appendChild(fill);
+
+  const messageEl = doc.createElement('p');
+  messageEl.className = 'progress-message';
+
+  wrapper.appendChild(bar);
+  wrapper.appendChild(messageEl);
+  bannerEl.appendChild(wrapper);
+
+  return { bar, fill, messageEl };
+}
+
+/**
+ * Faz 34: Durum çubuğu / OCR ilerleme göstergesini günceller.
+ * XSS koruması: mesaj her zaman textContent ile yazılır.
+ * @param {HTMLElement} bannerEl
+ * @param {{ step?: string, percentage?: number, message?: string, isVisible?: boolean }} [state]
+ * @returns {{ bar: HTMLElement, fill: HTMLElement, messageEl: HTMLElement, percentage: number, isVisible: boolean }}
+ */
+export function updateProgressBanner(bannerEl, {
+  step = 'idle',
+  percentage = 0,
+  message = '',
+  isVisible = true,
+} = {}) {
+  if (!bannerEl || typeof bannerEl.querySelector !== 'function') {
+    throw new TypeError('ERR_INVALID_BANNER_ELEMENT');
+  }
+
+  const { bar, fill, messageEl } = ensureProgressBanner(bannerEl);
+  const safePercentage = clampPercentage(percentage);
+  const safeMessage = message === undefined || message === null ? '' : String(message);
+
+  if (fill) fill.style.width = `${safePercentage}%`;
+  if (bar) bar.setAttribute('aria-valuenow', String(safePercentage));
+  if (messageEl && messageEl.textContent !== safeMessage) messageEl.textContent = safeMessage;
+
+  bannerEl.dataset.step = String(step);
+  bannerEl.classList.toggle('hidden', !isVisible);
+
+  return { bar, fill, messageEl, percentage: safePercentage, isVisible: Boolean(isVisible) };
+}
+
 
