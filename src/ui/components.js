@@ -468,3 +468,127 @@ export function updateProgressBanner(bannerEl, {
 }
 
 
+
+/** Bildirim (toast) kartının varsayılan görünme süresi. */
+export const TOAST_DEFAULT_DURATION_MS = 5000;
+
+/** Bilinmeyen model fiyatı uyarısının sabit metni (tek merkezden yönetilir). */
+export const FALLBACK_PRICING_MESSAGE =
+  'Bazı modeller için tahmini fiyat kullanıldı, tablodan birim fiyatı düzenleyebilirsiniz';
+
+/** Geçerli bildirim tipleri. */
+export const TOAST_TYPES = Object.freeze(['info', 'success', 'warning', 'error']);
+
+/** Tip başına varsayılan başlık. */
+const TOAST_TYPE_TITLES = Object.freeze({
+  info: 'Bilgi',
+  success: 'Başarılı',
+  warning: 'Uyarı',
+  error: 'Hata',
+});
+
+/** Bildirimlerin birikeceği listeyi (aria-live) bir kez oluşturur. */
+function ensureToastContainer(toastContainer) {
+  const existing = toastContainer.querySelector('.toast-container');
+  if (existing) return existing;
+
+  const list = toastContainer.ownerDocument.createElement('div');
+  list.className = 'toast-container';
+  list.setAttribute('role', 'region');
+  list.setAttribute('aria-live', 'polite');
+  toastContainer.appendChild(list);
+  return list;
+}
+
+/**
+ * Faz 35: Otomatik temizlenen bildirim (toast) kartı ekler.
+ * XSS koruması: başlık ve mesaj her zaman textContent ile yazılır.
+ * @param {HTMLElement} toastContainer
+ * @param {{ title?: string, message?: string, type?: 'info'|'success'|'warning'|'error', durationMs?: number }} [options]
+ * @returns {{ element: HTMLElement, type: string, dismiss: Function }}
+ */
+export function showNotification(toastContainer, {
+  title,
+  message = '',
+  type = 'info',
+  durationMs = TOAST_DEFAULT_DURATION_MS,
+} = {}) {
+  if (!toastContainer || typeof toastContainer.querySelector !== 'function') {
+    throw new TypeError('ERR_INVALID_TOAST_CONTAINER');
+  }
+
+  const list = ensureToastContainer(toastContainer);
+  const doc = toastContainer.ownerDocument;
+  const safeType = TOAST_TYPES.includes(type) ? type : 'info';
+  const safeTitle = title === undefined || title === null || title === '' ? TOAST_TYPE_TITLES[safeType] : String(title);
+  const safeMessage = message === undefined || message === null ? '' : String(message);
+
+  const toast = doc.createElement('div');
+  toast.className = `toast toast--${safeType}`;
+  toast.dataset.type = safeType;
+  toast.setAttribute('role', 'alert');
+
+  const titleEl = doc.createElement('strong');
+  titleEl.className = 'toast-title';
+  titleEl.textContent = safeTitle;
+
+  const messageEl = doc.createElement('p');
+  messageEl.className = 'toast-message';
+  messageEl.textContent = safeMessage;
+
+  const closeButton = doc.createElement('button');
+  closeButton.type = 'button';
+  closeButton.className = 'toast-close';
+  closeButton.dataset.action = 'close-toast';
+  closeButton.setAttribute('aria-label', 'Bildirimi kapat');
+  closeButton.textContent = '✕';
+
+  toast.appendChild(titleEl);
+  toast.appendChild(messageEl);
+  toast.appendChild(closeButton);
+  list.appendChild(toast);
+
+  let timer = null;
+  let isDismissed = false;
+
+  function dismiss() {
+    if (isDismissed) return;
+    isDismissed = true;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (typeof toast.remove === 'function') toast.remove();
+  }
+
+  closeButton.addEventListener('click', dismiss);
+
+  const duration = Number(durationMs);
+  if (Number.isFinite(duration) && duration > 0) {
+    timer = setTimeout(dismiss, duration);
+  }
+
+  return { element: toast, type: safeType, dismiss };
+}
+
+/**
+ * Faz 35: Katalogda bulunamayan (fallback fiyat kullanılan) modeller için kullanıcıyı uyarır.
+ * @param {HTMLElement} toastContainer
+ * @param {string[]} unknownModels
+ * @param {{ title?: string, durationMs?: number }} [options]
+ * @returns {{ element: HTMLElement, type: string, dismiss: Function }|null}
+ */
+export function notifyUnknownModelPrices(toastContainer, unknownModels = [], options = {}) {
+  const models = Array.isArray(unknownModels)
+    ? unknownModels.filter((model) => typeof model === 'string' && model.trim() !== '')
+    : [];
+  if (models.length === 0) return null;
+
+  return showNotification(toastContainer, {
+    title: options.title || 'Tahmini fiyat',
+    message: FALLBACK_PRICING_MESSAGE,
+    type: 'warning',
+    durationMs: options.durationMs === undefined ? TOAST_DEFAULT_DURATION_MS : options.durationMs,
+  });
+}
+

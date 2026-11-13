@@ -8,7 +8,13 @@ import {
   filterAcceptedFiles,
   ACCEPTED_FILE_EXTENSIONS,
 } from '../src/ui/input-handler.js';
-import { renderUsageTable, updateProgressBanner } from '../src/ui/components.js';
+import {
+  renderUsageTable,
+  updateProgressBanner,
+  showNotification,
+  notifyUnknownModelPrices,
+  FALLBACK_PRICING_MESSAGE,
+} from '../src/ui/components.js';
 import { createAppStore } from '../src/ui/store.js';
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
 
@@ -492,5 +498,130 @@ describe('Faz 34: updateProgressBanner', () => {
     expect(banner.querySelectorAll('.progress-message')).toHaveLength(1);
     expect(banner.querySelector('.progress-message')).toBe(messageEl);
     expect(() => updateProgressBanner(null, {})).toThrow(TypeError);
+  });
+});
+
+describe('Faz 35: showNotification - toast servisi', () => {
+  it('warning tipinde sarı uyarı stiliyle DOM\'a eklenir', () => {
+    const container = createContainer();
+    const { element, dismiss } = showNotification(container, {
+      title: 'Uyarı',
+      message: 'Bir sorun var',
+      type: 'warning',
+      durationMs: 5000,
+    });
+
+    expect(element.classList.contains('toast')).toBe(true);
+    expect(element.classList.contains('toast--warning')).toBe(true);
+    expect(element.classList.contains('toast--info')).toBe(false);
+    expect(element.getAttribute('role')).toBe('alert');
+    expect(element.querySelector('.toast-title').textContent).toBe('Uyarı');
+    expect(element.querySelector('.toast-message').textContent).toBe('Bir sorun var');
+    expect(container.querySelectorAll('.toast')).toHaveLength(1);
+
+    dismiss();
+  });
+
+  it('durationMs sonunda otomatik kaldırılır (fake timer uyumlu)', () => {
+    vi.useFakeTimers();
+    const container = createContainer();
+    showNotification(container, { message: 'okunuyor', type: 'warning', durationMs: 3000 });
+
+    expect(container.querySelectorAll('.toast')).toHaveLength(1);
+    vi.advanceTimersByTime(2999);
+    expect(container.querySelectorAll('.toast')).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(container.querySelectorAll('.toast')).toHaveLength(0);
+
+    vi.useRealTimers();
+  });
+
+  it('bilinmeyen tip "info" stilini kullanır, başlık tipe göre varsayılan seçilir', () => {
+    const container = createContainer();
+    const unknown = showNotification(container, { message: 'a', type: 'bilinmeyen', durationMs: 0 });
+    expect(unknown.element.classList.contains('toast--info')).toBe(true);
+    expect(unknown.element.querySelector('.toast-title').textContent).toBe('Bilgi');
+
+    const success = showNotification(container, { message: 'b', type: 'success', durationMs: 0 });
+    expect(success.element.classList.contains('toast--success')).toBe(true);
+    expect(success.element.querySelector('.toast-title').textContent).toBe('Başarılı');
+
+    unknown.dismiss();
+    success.dismiss();
+  });
+
+  it('kapatma butonu toast\'ı hemen kaldırır ve zamanlayıcıyı temizler', () => {
+    vi.useFakeTimers();
+    const container = createContainer();
+    showNotification(container, { message: 'x', type: 'error', durationMs: 5000 });
+
+    container.querySelector('[data-action="close-toast"]').click();
+    expect(container.querySelectorAll('.toast')).toHaveLength(0);
+
+    vi.advanceTimersByTime(5000);
+    expect(container.querySelectorAll('.toast')).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it('birden fazla toast üst üste eklenir, dismiss tek tek ve idempotent çalışır', () => {
+    const container = createContainer();
+    const first = showNotification(container, { message: '1', durationMs: 0 });
+    const second = showNotification(container, { message: '2', durationMs: 0 });
+
+    expect(container.querySelectorAll('.toast')).toHaveLength(2);
+    first.dismiss();
+    expect(container.querySelectorAll('.toast')).toHaveLength(1);
+    second.dismiss();
+    second.dismiss();
+    expect(container.querySelectorAll('.toast')).toHaveLength(0);
+  });
+
+  it('toast\'lar aria-live bildirim listesine eklenir', () => {
+    const container = createContainer();
+    const { element, dismiss } = showNotification(container, { message: 'x', durationMs: 0 });
+
+    const list = container.querySelector('.toast-container');
+    expect(list).not.toBeNull();
+    expect(list.getAttribute('aria-live')).toBe('polite');
+    expect(element.parentElement).toBe(list);
+
+    dismiss();
+  });
+
+  it('mesaj textContent ile yazılır (XSS koruması), geçersiz kapsayıcıda hata verir', () => {
+    const container = createContainer();
+    const { element, dismiss } = showNotification(container, { message: '<b>x</b>', durationMs: 0 });
+
+    expect(element.querySelector('.toast-message').textContent).toBe('<b>x</b>');
+    expect(element.querySelector('.toast-message b')).toBeNull();
+    dismiss();
+
+    expect(() => showNotification(null, { message: 'x' })).toThrow(TypeError);
+  });
+});
+
+describe('Faz 35: notifyUnknownModelPrices - fallback fiyat uyarısı', () => {
+  it('tam olarak beklenen uyarı metnini gösterir', () => {
+    const container = createContainer();
+    const handle = notifyUnknownModelPrices(container, ['gizemli-model-1', 'gizemli-model-2']);
+
+    expect(FALLBACK_PRICING_MESSAGE).toBe(
+      'Bazı modeller için tahmini fiyat kullanıldı, tablodan birim fiyatı düzenleyebilirsiniz',
+    );
+
+    const toast = container.querySelector('.toast');
+    expect(toast).not.toBeNull();
+    expect(toast.classList.contains('toast--warning')).toBe(true);
+    expect(toast.querySelector('.toast-message').textContent).toBe(FALLBACK_PRICING_MESSAGE);
+
+    handle.dismiss();
+  });
+
+  it('bilinmeyen model listesi boşsa bildirim gösterilmez (null döner)', () => {
+    const container = createContainer();
+
+    expect(notifyUnknownModelPrices(container, [])).toBeNull();
+    expect(notifyUnknownModelPrices(container, undefined)).toBeNull();
+    expect(container.querySelectorAll('.toast')).toHaveLength(0);
   });
 });
