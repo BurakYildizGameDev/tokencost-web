@@ -161,6 +161,38 @@ describe('Faz 32: bindInputEvents - panodan yapıştırma (Ctrl+V)', () => {
     expect(onFiles).toHaveBeenCalledTimes(1);
     expect(onFiles.mock.calls[0][0][0].name).toBe('items.png');
   });
+
+  it('düzenlenebilir input içine yapıştırma global paste işleyicisini tetiklemez', () => {
+    const container = createContainer();
+    const input = document.createElement('input');
+    input.className = 'cell-input';
+    container.appendChild(input);
+    document.body.appendChild(input);
+    input.focus();
+
+    const onText = vi.fn();
+    const onFiles = vi.fn();
+    bindInputEvents(container, { onText, onFiles });
+
+    const event = createPasteEvent(createClipboardData({ text: 'e74a3b' }));
+    Object.defineProperty(event, 'target', { value: input });
+    window.dispatchEvent(event);
+
+    expect(onText).not.toHaveBeenCalled();
+    expect(onFiles).not.toHaveBeenCalled();
+  });
+
+  it('input dışındaki bir elemente yapıştırma normal şekilde işlenir', () => {
+    const container = createContainer();
+    const onText = vi.fn();
+    bindInputEvents(container, { onText });
+
+    const event = createPasteEvent(createClipboardData({ text: '14 Eki\tglm-5.3\t341' }));
+    Object.defineProperty(event, 'target', { value: container });
+    window.dispatchEvent(event);
+
+    expect(onText).toHaveBeenCalledWith('14 Eki\tglm-5.3\t341');
+  });
 });
 
 describe('Faz 32: bindInputEvents - sürükle-bırak', () => {

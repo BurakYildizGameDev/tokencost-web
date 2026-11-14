@@ -3,7 +3,7 @@
 // KURAL: Bu dosyada document/canvas KULLANILMAZ; tüm görüntü işlemleri saf piksel
 //        ({ data: Uint8ClampedArray, width, height }) üzerinde çalışır.
 
-import { parsePastedTableText } from '../core/parser.js';
+import { buildRecordSignature, parsePastedTableText } from '../core/parser.js';
 
 /** Varsayılan ön işleme seçenekleri. */
 export const DEFAULT_PREPROCESS_OPTIONS = Object.freeze({
@@ -240,6 +240,8 @@ export function cleanOCRTableArtefacts(rawLineText) {
  * Faz 30: Kayıtları (tarih, model, istek, toplam token) dörtlüsüne göre tekilleştirir.
  * Uzun tablolar kaydırılarak 2-3 ekran görüntüsü halinde alındığında son satır
  * tekrar okunur (scroll overlap); bu mükerrer satırlar burada elenir.
+ * NOT: İmza üretimi parser ile ORTAK tutulur (buildRecordSignature) ki iki katman
+ * farklı tekilleştirme anahtarı kullanmasın.
  * @param {object[]} records
  * @returns {object[]}
  */
@@ -251,7 +253,7 @@ export function deduplicateRecords(records = []) {
 
   for (const record of records) {
     if (!record) continue;
-    const key = `${record.date}_${record.model}_${record.requests}_${record.totalTokens}`;
+    const key = buildRecordSignature(record);
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(record);

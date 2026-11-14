@@ -322,7 +322,10 @@ export function parsePastedTableText(rawClipboardText) {
       continue;
     }
 
-    const record = rowToRecord(cells, detected);
+    // Başlık satırı bulunduysa sütun eşlemesi başlığa göre sabitlenir. Aksi halde
+    // her satır kendi yapısal çıkarımına düşer ve Toplam/Önbellek sütunları karışabilir.
+    const binding = columnIndices && columnIndices.hasHeader ? columnIndices : detected;
+    const record = rowToRecord(cells, binding);
     if (record === null) {
       skippedLines.push({ line: rawLine, reason: 'UNRECOGNIZED_ROW' });
       continue;

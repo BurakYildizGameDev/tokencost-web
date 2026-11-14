@@ -59,6 +59,21 @@ function resolveWindow(containerEl) {
   return globalThis;
 }
 
+/**
+ * Faz 32: Olayın hedefi kullanıcı girişi yapılabilen bir alan mı?
+ * Tablo hücreleri satır içi düzenlenirken yapıştırılan değer tablo metni sanılmamalıdır.
+ * @param {EventTarget|null} target
+ * @returns {boolean}
+ */
+export function isEditableTarget(target) {
+  if (!target || typeof target !== 'object') return false;
+
+  const tagName = typeof target.tagName === 'string' ? target.tagName.toLowerCase() : '';
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return true;
+
+  return target.isContentEditable === true;
+}
+
 /** Panodan resim dosyalarını toplar (files → items fallback). */
 function collectPasteFiles(clipboardData) {
   if (!clipboardData) return [];
@@ -108,6 +123,9 @@ export function bindInputEvents(containerEl, callbacks = {}) {
   }
 
   function handlePaste(event) {
+    // Satır içi düzenleme yapılırken yapıştırılan değer tablo metni değildir.
+    if (event && isEditableTarget(event.target)) return;
+
     const clipboardData = event ? event.clipboardData : null;
     const files = collectPasteFiles(clipboardData);
     if (files.length > 0) {

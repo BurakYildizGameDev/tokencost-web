@@ -220,4 +220,21 @@ describe('Faz 25: parsePastedTableText', () => {
     expect(result.columnIndices.model).toBe(1);
     expect(result.records).toHaveLength(2);
   });
+
+  it('başlık satırındaki sütun eşlemesi veri satırlarına uygulanır (Toplam/Önbellek karışmaz)', () => {
+    const withHeader = [
+      'Tarih\tModel\tİstek\tToplam Token\tÖnbelleklenen\tKotaya Yansıyan',
+      '14 Eki\tdeepseek-v4.1-flash\t2.984\t177.254.544 (%95)\t169.521.069\t7.733.475',
+    ].join('\n');
+
+    const [row] = parsePastedTableText(withHeader).records;
+    expect(row).toMatchObject({
+      date: '14 Eki',
+      model: 'deepseek-v4.1-flash',
+      requests: 2984,
+      totalTokens: 177254544,
+      cachedTokens: 169521069,
+      billedTokens: 7733475,
+    });
+  });
 });

@@ -1,7 +1,7 @@
 // tests/store.test.js
 // Faz 31: Reaktif durum yöneticisi (Pub/Sub store) testleri.
 import { describe, it, expect, vi } from 'vitest';
-import { createAppStore, buildCalculatedRecords } from '../src/ui/store.js';
+import { createAppStore, buildCalculatedRecords, resolveCatalogKeyForModel } from '../src/ui/store.js';
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
 
 /** Test fiyat kataloğu (LiteLLM benzeri kaynak). */
@@ -271,6 +271,47 @@ describe('Faz 31: buildCalculatedRecords (saf yardımcı)', () => {
     expect(buildCalculatedRecords()).toEqual([]);
     expect(buildCalculatedRecords([])).toEqual([]);
     expect(buildCalculatedRecords(null)).toEqual([]);
+  });
+});
+
+describe('Tarama düzeltmeleri: model adı çözümleme ve güvenli özel fiyatlar', () => {
+  it('sağlayıcı önekli (deepseek-ai/DeepSeek-V4.1-Flash) ad katalog anahtarıyla eşleşir', () => {
+    const catalog = {
+      'deepseek-chat': createPricingProfile({
+        modelId: 'deepseek-chat',
+        cachedInputCostPerMillion: 0.014,
+        uncachedInputCostPerMillion: 0.14,
+        outputCostPerMillion: 0.28,
+        source: 'litellm',
+      }),
+    };
+
+    const [row] = buildCalculatedRecords(
+      [createTestRecord({ model: 'deepseek-ai/DeepSeek-V4.1-Flash' })],
+      { catalog },
+    );
+
+    expect(row.model).toBe('deepseek-ai/DeepSeek-V4.1-Flash'); // tabloda ham ad görünür
+    expect(row.pricingSource).toBe('litellm');
+    expect(row.totalCostUSD).toBeCloseTo(0.1036, 6);
+  });
+
+  it('resolveCatalogKeyForModel OCR bozulmasını bulanık eşler, ilgisiz adı null döner', () => {
+    const catalog = createTestCatalog();
+
+    expect(resolveCatalogKeyForModel('deepseek-v4.1-flash', catalog)).toBe('deepseek-v4.1-flash');
+    expect(resolveCatalogKeyForModel('gIm-5.3', catalog)).toBe('glm-5.3');
+    expect(resolveCatalogKeyForModel('bilinmeyen-model-x', catalog)).toBeNull();
+    expect(resolveCatalogKeyForModel('', catalog)).toBeNull();
+    expect(resolveCatalogKeyForModel('glm-5.3', {})).toBeNull();
+  });
+
+  it('katalog dışı modele kısmi özel fiyat verildiğinde store çökmez (source: custom)', () => {
+    const store = createAppStore({ pricingCatalog: createTestCatalog() });
+    store.addRecords([createTestRecord()]);
+
+    expect(() => store.setCustomPrice('katalog-disi-model', { outputCostPerMillion: 5 })).not.toThrow();
+    expect(store.getState().customPrices['katalog-disi-model'].outputCostPerMillion).toBe(5);
   });
 });
 

@@ -13,6 +13,7 @@ import {
   validateTokenConsistency,
 } from '../core/calculator.js';
 import { applyCustomPriceOverrides } from '../services/pricing-service.js';
+import { fuzzyMatchModel, normalizeModelName, resolveModelAlias } from '../core/normalizer.js';
 
 /** Değiştiğinde türetilmiş durumun (derived state) yeniden hesaplanmasını tetikleyen alanlar. */
 const DERIVED_INPUT_KEYS = Object.freeze(['records', 'customPrices', 'pricingCatalog']);
@@ -25,6 +26,9 @@ export const FALLBACK_PRICING = Object.freeze({
 
 /** Bilinmeyen model fiyatının kaynağı (uyarı rozetleri için). */
 export const FALLBACK_PRICING_SOURCE = 'fallback';
+
+/** Bulanık eşleşmede kabul edilen en büyük Levenshtein mesafesi (OCR tek karakter hataları). */
+export const MAX_FUZZY_MODEL_DISTANCE = 2;
 
 /** Kullanıcı yeni satır eklediğinde kullanılan varsayılan model adı. */
 export const DEFAULT_NEW_MODEL_NAME = 'Yeni Model';
@@ -54,6 +58,60 @@ function normalizeRecord(record) {
   return createTokenRecord(record || {});
 }
 
+/** Varsayılan (fallback) fiyat profilini üretir. */
+function createFallbackProfile(modelId) {
+  return createPricingProfile({
+    modelId,
+    uncachedInputCostPerMillion: FALLBACK_PRICING.uncachedInputCostPerMillion,
+    outputCostPerMillion: FALLBACK_PRICING.outputCostPerMillion,
+    source: FALLBACK_PRICING_SOURCE,
+  });
+}
+
+/**
+ * Katalog anahtarlarının normalize edilmiş karşılıklarına bakan indeks üretir.
+ * Örn: 'deepseek-ai/DeepSeek-Chat' → 'deepseek-chat'.
+ * @param {object} catalog
+ * @returns {Map<string, string>}
+ */
+function buildNormalizedCatalogIndex(catalog) {
+  const index = new Map();
+  for (const key of Object.keys(catalog || {})) {
+    const normalized = normalizeModelName(key);
+    if (normalized !== '' && !index.has(normalized)) index.set(normalized, key);
+  }
+  return index;
+}
+
+/**
+ * Model adını katalog anahtarına çözer (tam eşleşme → normalize → alias → bulanık eşleşme).
+ * OCR kaynaklı bozuk adlar ('gIm-5.3') ve sağlayıcı önekli adlar
+ * ('deepseek-ai/DeepSeek-V4.1-Flash') böylece canlı fiyatlarla eşleşir.
+ * @param {string} model
+ * @param {object} catalog
+ * @param {number} [maxDistance=MAX_FUZZY_MODEL_DISTANCE]
+ * @returns {string|null} Eşleşen katalog anahtarı ya da null.
+ */
+export function resolveCatalogKeyForModel(model, catalog = {}, maxDistance = MAX_FUZZY_MODEL_DISTANCE) {
+  if (typeof model !== 'string' || model.trim() === '') return null;
+  if (!catalog || typeof catalog !== 'object') return null;
+
+  const name = model.trim();
+  if (Object.prototype.hasOwnProperty.call(catalog, name)) return name;
+
+  const index = buildNormalizedCatalogIndex(catalog);
+  if (index.size === 0) return null;
+
+  const normalized = normalizeModelName(name);
+  if (normalized !== '' && index.has(normalized)) return index.get(normalized);
+
+  const alias = resolveModelAlias(normalized);
+  if (alias !== '' && index.has(alias)) return index.get(alias);
+
+  const fuzzy = fuzzyMatchModel(name, Array.from(index.keys()), maxDistance);
+  return fuzzy ? index.get(fuzzy.matchedId) || null : null;
+}
+
 /**
  * Faz 31: Ham kayıtları fiyatlandırılmış (calculatedRecords) satırlara dönüştürür.
  * Saf fonksiyondur: girdi kayıtlarını mutasyona uğratmaz, yeni diziler döner.
@@ -65,29 +123,20 @@ export function buildCalculatedRecords(records, { catalog = {}, customPrices = {
   const list = Array.isArray(records) ? records.filter(Boolean) : [];
   if (list.length === 0) return [];
 
-  // Katalogda olmayan modeller için fallback profili üretilir (temel katalog kopyası üzerinde).
-  const effectiveCatalog = { ...catalog };
-  for (const record of list) {
-    const model = record.model;
-    if (typeof model !== 'string' || model === '' || effectiveCatalog[model]) continue;
-    effectiveCatalog[model] = createPricingProfile({
-      modelId: model,
-      uncachedInputCostPerMillion: FALLBACK_PRICING.uncachedInputCostPerMillion,
-      outputCostPerMillion: FALLBACK_PRICING.outputCostPerMillion,
-      source: FALLBACK_PRICING_SOURCE,
-    });
+  // Katalogda karşılığı olmayan ama kullanıcı fiyatı girilmiş modeller için fallback tohumu:
+  // böylece kısmi fiyat girişi (ör. yalnızca çıktı fiyatı) eksik alanları güvenli varsayılanla tamamlar.
+  const seedCatalog = { ...catalog };
+  for (const model of Object.keys(customPrices || {})) {
+    if (resolveCatalogKeyForModel(model, seedCatalog) === null) {
+      seedCatalog[model] = createFallbackProfile(model);
+    }
   }
 
-  const pricedCatalog = applyCustomPriceOverrides(effectiveCatalog, customPrices);
+  const pricedCatalog = applyCustomPriceOverrides(seedCatalog, customPrices);
 
   return list.map((record) => {
-    const profile = pricedCatalog[record.model]
-      || createPricingProfile({
-        modelId: record.model,
-        uncachedInputCostPerMillion: FALLBACK_PRICING.uncachedInputCostPerMillion,
-        outputCostPerMillion: FALLBACK_PRICING.outputCostPerMillion,
-        source: FALLBACK_PRICING_SOURCE,
-      });
+    const catalogKey = resolveCatalogKeyForModel(record.model, pricedCatalog);
+    const profile = catalogKey ? pricedCatalog[catalogKey] : createFallbackProfile(record.model);
 
     const consistency = validateTokenConsistency(record);
     const cost = calculateSingleRowCost(

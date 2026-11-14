@@ -54,6 +54,23 @@ describe('Faz 15: applyCustomPriceOverrides', () => {
     applyCustomPriceOverrides(base, { 'mimo-v2.6-pro': { uncachedInputCostPerMillion: 99 } });
     expect(base).toEqual(snapshot);
   });
+
+  it('katalogda olmayan modelde kısmi override çökmez, eksik alanlar 0 olur', () => {
+    const result = applyCustomPriceOverrides({}, { 'yeni-model': { outputCostPerMillion: 5 } });
+
+    expect(result['yeni-model'].outputCostPerMillion).toBe(5);
+    expect(result['yeni-model'].uncachedInputCostPerMillion).toBe(0);
+    expect(result['yeni-model'].cachedInputCostPerMillion).toBe(0);
+    expect(result['yeni-model'].source).toBe('custom');
+  });
+
+  it('mevcut katalog girdisinde eksik alan varsa güvenli varsayılanla tamamlar', () => {
+    const profile = { modelId: 'eksik', displayName: 'Eksik', source: 'litellm' };
+    const result = applyCustomPriceOverrides({ eksik: profile }, { eksik: { outputCostPerMillion: 2 } });
+
+    expect(result.eksik.outputCostPerMillion).toBe(2);
+    expect(result.eksik.uncachedInputCostPerMillion).toBe(0);
+  });
 });
 
 describe('Faz 16: fetchLiteLLMPrices', () => {

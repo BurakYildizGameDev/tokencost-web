@@ -24,6 +24,11 @@ function perTokenToPerMillion(perToken) {
   return round6(perToken * 1e6);
 }
 
+/** İlk tanımlı (undefined/null olmayan) değeri döner. */
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
 /**
  * Faz 15: Kullanıcı tanımlı fiyat geçersiz kılmalarını uygular (immutable).
  * @param {Record<string, object>} baseCatalog
@@ -41,18 +46,22 @@ export function applyCustomPriceOverrides(baseCatalog = {}, userOverrides = {}) 
     catalog[id] = createPricingProfile({
       modelId: id,
       displayName: override.displayName || existing.displayName || id,
-      cachedInputCostPerMillion:
-        override.cachedInputCostPerMillion !== undefined
-          ? override.cachedInputCostPerMillion
-          : existing.cachedInputCostPerMillion,
-      uncachedInputCostPerMillion:
-        override.uncachedInputCostPerMillion !== undefined
-          ? override.uncachedInputCostPerMillion
-          : existing.uncachedInputCostPerMillion,
-      outputCostPerMillion:
-        override.outputCostPerMillion !== undefined
-          ? override.outputCostPerMillion
-          : existing.outputCostPerMillion,
+      // Kısmi fiyat girişi (ör. yalnızca çıktı fiyatı) çökmemeli: eksik alanlar 0 kabul edilir.
+      cachedInputCostPerMillion: firstDefined(
+        override.cachedInputCostPerMillion,
+        existing.cachedInputCostPerMillion,
+        0,
+      ),
+      uncachedInputCostPerMillion: firstDefined(
+        override.uncachedInputCostPerMillion,
+        existing.uncachedInputCostPerMillion,
+        0,
+      ),
+      outputCostPerMillion: firstDefined(
+        override.outputCostPerMillion,
+        existing.outputCostPerMillion,
+        0,
+      ),
       source: 'custom',
     });
   }
