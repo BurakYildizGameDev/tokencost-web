@@ -10,6 +10,7 @@ import {
 } from '../src/ui/input-handler.js';
 import {
   renderUsageTable,
+  renderFinOpsSummaryCards,
   updateProgressBanner,
   showNotification,
   notifyUnknownModelPrices,
@@ -645,7 +646,6 @@ describe('Faz 35: notifyUnknownModelPrices - fallback fiyat uyarısı', () => {
     expect(toast).not.toBeNull();
     expect(toast.classList.contains('toast--warning')).toBe(true);
     expect(toast.querySelector('.toast-message').textContent).toBe(FALLBACK_PRICING_MESSAGE);
-
     handle.dismiss();
   });
 
@@ -657,3 +657,87 @@ describe('Faz 35: notifyUnknownModelPrices - fallback fiyat uyarısı', () => {
     expect(container.querySelectorAll('.toast')).toHaveLength(0);
   });
 });
+
+describe('Faz 37: renderFinOpsSummaryCards', () => {
+  /** $13.80 gerçek fatura, $39.64 önbellek tasarrufu, %95 hit, 4.044 istek. */
+  function createSummary() {
+    return {
+      recordCount: 13,
+      totalRequests: 4044,
+      totalTokens: 333698885,
+      totalCachedTokens: 305198885,
+      totalBilledTokens: 28500000,
+      totalCachedCostUSD: 13.8,
+      totalBilledCostUSD: 0,
+      totalCostUSD: 13.8,
+      totalSavedUSD: 39.64,
+      overallCacheHitRate: 95,
+      savingsPercentage: 74.18,
+    };
+  }
+
+  it('4 ana FinOps metriğini doğru biçimlenmiş değerlerle çizer', () => {
+    const container = createContainer();
+    renderFinOpsSummaryCards(container, createSummary(), 36.5);
+
+    expect(container.querySelectorAll('.finops-card')).toHaveLength(4);
+
+    const withoutCache = container.querySelector('[data-metric="withoutCache"]');
+    expect(withoutCache.querySelector('.finops-card-label').textContent).toContain('Normalde Ödenecek');
+    expect(withoutCache.querySelector('.finops-card-value').textContent).toBe('$53.44');
+
+    const savings = container.querySelector('[data-metric="cacheSavings"]');
+    expect(savings.querySelector('.finops-card-value').textContent).toBe('-$39.64 (Kâr)');
+    expect(savings.querySelector('.finops-card-badge').textContent).toBe('%95 Hit');
+    expect(savings.className).toContain('finops-card--success');
+
+    const invoice = container.querySelector('[data-metric="invoice"]');
+    expect(invoice.querySelector('.finops-card-value').textContent).toBe('$13.80 / ₺503,70');
+    expect(invoice.className).toContain('finops-card--accent');
+
+    const quota = container.querySelector('[data-metric="quota"]');
+    expect(quota.querySelector('.finops-card-value').textContent).toBe('4.044 İstek | 28,5M Net Token');
+  });
+
+
+  it('boş/geçersiz özet verildiğinde çökmeden sıfır değerleri gösterir', () => {
+    for (const input of [undefined, null, {}]) {
+      const container = createContainer();
+      expect(() => renderFinOpsSummaryCards(container, input)).not.toThrow();
+
+      expect(container.querySelector('[data-metric="withoutCache"] .finops-card-value').textContent).toBe('$0.00');
+      expect(container.querySelector('[data-metric="cacheSavings"] .finops-card-value').textContent).toBe('$0.00');
+      expect(container.querySelector('[data-metric="invoice"] .finops-card-value').textContent).toBe('$0.00 / ₺0,00');
+      expect(container.querySelector('[data-metric="quota"] .finops-card-value').textContent).toBe('0 İstek | 0 Net Token');
+    }
+  });
+
+  it('iki kez çağrıldığında kartları çoğaltmaz, değerleri günceller (idempotent)', () => {
+    const container = createContainer();
+    const first = renderFinOpsSummaryCards(container, createSummary(), 36.5);
+
+    renderFinOpsSummaryCards(container, { ...createSummary(), totalCostUSD: 27.6, totalSavedUSD: 0 }, 36.5);
+
+    expect(container.querySelectorAll('.finops-cards')).toHaveLength(1);
+    expect(container.querySelectorAll('.finops-card')).toHaveLength(4);
+    expect(container.querySelector('[data-metric="invoice"] .finops-card-value').textContent).toBe('$27.60 / ₺1.007,40');
+    expect(container.querySelector('[data-metric="cacheSavings"] .finops-card-value').textContent).toBe('$0.00');
+    expect(first.element).toBe(container.querySelector('.finops-cards'));
+  });
+
+  it('refresh ile yeni özet anında yansıtılır', () => {
+    const container = createContainer();
+    const cards = renderFinOpsSummaryCards(container, createSummary(), 36.5);
+
+    cards.refresh({ totalCostUSD: 1.5, totalSavedUSD: 3, overallCacheHitRate: 50, totalRequests: 10, totalBilledTokens: 2500 });
+
+    expect(container.querySelector('[data-metric="invoice"] .finops-card-value').textContent).toBe('$1.50 / ₺54,75');
+    expect(container.querySelector('[data-metric="cacheSavings"] .finops-card-value').textContent).toBe('-$3.00 (Kâr)');
+    expect(container.querySelector('[data-metric="quota"] .finops-card-value').textContent).toBe('10 İstek | 2,5K Net Token');
+  });
+
+  it('geçersiz kapsayıcıda TypeError fırlatır', () => {
+    expect(() => renderFinOpsSummaryCards(null, createSummary())).toThrow(TypeError);
+  });
+});
+

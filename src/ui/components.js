@@ -5,6 +5,7 @@
 
 import { aggregateUsageSummaries } from '../core/calculator.js';
 import { formatCostDisplay, formatTokenCount } from '../core/formatter.js';
+import { convertCurrency } from '../services/currency-service.js';
 
 /** Kullanıcı tarafından düzenlenebilen hücre alanları. */
 export const EDITABLE_FIELDS = Object.freeze([
@@ -382,6 +383,144 @@ export function renderUsageTable(containerEl, calculatedRecords, store) {
       if (typeof unsubscribe === 'function') unsubscribe();
       BOUND_TABLES.delete(containerEl);
     },
+  };
+}
+
+/** FinOps özet kartlarının etiketleri (Faz 37). */
+export const FINOPS_METRIC_LABELS = Object.freeze({
+  withoutCache: 'Normalde Ödenecek (Önbelleksiz)',
+  cacheSavings: 'Önbellek Tasarrufu',
+  invoice: 'Gerçek Fatura (USD & TRY)',
+  quota: 'Kotaya Yansıyan İstek & Token',
+});
+
+/** Kart renk vurguları: yeşil = tasarruf, mavi = gerçek fatura. */
+export const FINOPS_METRIC_VARIANTS = Object.freeze({
+  withoutCache: 'neutral',
+  cacheSavings: 'success',
+  invoice: 'accent',
+  quota: 'neutral',
+});
+
+/** currencyRate parametresini kur tablosuna çevirir: 36.5 → { TRY: 36.5 } */
+function normalizeCurrencyRates(currencyRate) {
+  if (typeof currencyRate === 'number' && Number.isFinite(currencyRate) && currencyRate > 0) {
+    return { TRY: currencyRate };
+  }
+  if (currencyRate && typeof currencyRate === 'object') return { ...currencyRate };
+  return {};
+}
+
+/**
+ * Faz 37: Özet nesnesinden kart metinlerini üretir (saf fonksiyon).
+ * Tüm sayılar Faz 10 formatlayıcılarından geçer.
+ * @param {object} summary
+ * @param {number|object} [currencyRate]
+ * @returns {Record<string, string>}
+ */
+export function buildFinOpsMetricValues(summary, currencyRate) {
+  const source = summary && typeof summary === 'object' ? summary : {};
+  const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+  const savedUSD = num(source.totalSavedUSD);
+  const withoutCacheUSD = num(source.totalCachedCostUSD) + savedUSD;
+  const invoiceUSD = num(source.totalCostUSD);
+  const hitRate = Math.round(num(source.overallCacheHitRate));
+  const requests = Math.round(num(source.totalRequests));
+  const netTokens = Math.round(num(source.totalBilledTokens) || num(source.totalTokens));
+
+  const invoiceTRY = convertCurrency(invoiceUSD, 'TRY', normalizeCurrencyRates(currencyRate)).formatted;
+
+  return {
+    withoutCache: formatCostDisplay(withoutCacheUSD),
+    cacheSavings: savedUSD > 0 ? `-${formatCostDisplay(savedUSD)} (Kâr)` : formatCostDisplay(0),
+    savingsBadge: `%${hitRate} Hit`,
+    invoice: `${formatCostDisplay(invoiceUSD)} / ${invoiceTRY}`,
+    quota: `${formatTokenCount(requests).full} İstek | ${formatTokenCount(netTokens).short} Net Token`,
+  };
+}
+
+/**
+ * Faz 37: FinOps özet kartlarını çizer (4 metrik) ve mevcut kartları yeniden kullanır.
+ * İkinci çağrıda kartlar çoğaltılmaz; yalnızca değerler güncellenir.
+ * @param {HTMLElement} containerEl
+ * @param {object} summary
+ * @param {number|object} [currencyRate]
+ * @returns {{ element: HTMLElement, values: object, refresh: Function }}
+ */
+export function renderFinOpsSummaryCards(containerEl, summary, currencyRate) {
+  if (!containerEl || typeof containerEl.querySelector !== 'function') {
+    throw new TypeError('ERR_INVALID_CONTAINER_ELEMENT');
+  }
+
+  const doc = containerEl.ownerDocument;
+  const fields = Object.keys(FINOPS_METRIC_LABELS);
+  let grid = containerEl.querySelector('.finops-cards');
+  const cards = {};
+
+  if (!grid) {
+    grid = doc.createElement('div');
+    grid.className = 'finops-cards';
+
+    for (const field of fields) {
+      const card = doc.createElement('div');
+      card.className = `finops-card finops-card--${FINOPS_METRIC_VARIANTS[field]}`;
+      card.dataset.metric = field;
+
+      const label = doc.createElement('span');
+      label.className = 'finops-card-label';
+      label.textContent = FINOPS_METRIC_LABELS[field];
+
+      const value = doc.createElement('strong');
+      value.className = 'finops-card-value';
+
+      card.appendChild(label);
+      card.appendChild(value);
+
+      if (field === 'cacheSavings') {
+        const badge = doc.createElement('span');
+        badge.className = 'finops-card-badge';
+        card.appendChild(badge);
+      }
+
+      grid.appendChild(card);
+    }
+
+    containerEl.appendChild(grid);
+  }
+
+  for (const field of fields) {
+    const card = grid.querySelector(`[data-metric="${field}"]`);
+    cards[field] = {
+      card,
+      value: card ? card.querySelector('.finops-card-value') : null,
+      badge: card ? card.querySelector('.finops-card-badge') : null,
+    };
+  }
+
+  /** Metinleri yazar (aynı metinde gereksiz DOM güncellemesi yapmaz). */
+  function apply(nextSummary) {
+    const values = buildFinOpsMetricValues(nextSummary, currencyRate);
+
+    for (const field of fields) {
+      const parts = cards[field];
+      if (!parts || !parts.value) continue;
+      if (parts.value.textContent !== values[field]) parts.value.textContent = values[field];
+      if (parts.badge && parts.badge.textContent !== values.savingsBadge) {
+        parts.badge.textContent = values.savingsBadge;
+      }
+    }
+
+    return values;
+  }
+
+  const values = apply(summary);
+
+  return {
+    element: grid,
+    cards,
+    values,
+    refresh: (nextSummary) => apply(nextSummary),
   };
 }
 
