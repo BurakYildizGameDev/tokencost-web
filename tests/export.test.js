@@ -6,11 +6,14 @@ import {
   SIGNATURE_TEXT,
   CSV_UTF8_BOM,
   DEFAULT_CSV_FILENAME,
+  DEFAULT_PDF_FILENAME,
   generateCSVContent,
   downloadCSVFile,
+  generatePDFReportHTML,
+  exportToPDF,
 } from '../src/services/export-service.js';
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
-import { aggregateUsageSummaries } from '../src/core/calculator.js';
+import { aggregateUsageSummaries, groupRecordsByModel } from '../src/core/calculator.js';
 import { buildCalculatedRecords } from '../src/ui/store.js';
 
 /** Test fiyat kataloğu. */
@@ -165,3 +168,117 @@ describe('Faz 38: downloadCSVFile', () => {
     clickSpy.mockRestore();
   });
 });
+
+describe('Faz 39: generatePDFReportHTML', () => {
+  const currencyInfo = { code: 'TRY', rate: 36.5, symbol: '₺' };
+
+  it('A4, beyaz zeminli (yazıcı dostu) tam bir rapor şablonu üretir', () => {
+    const { calculatedRecords, summary } = createFixture();
+    const html = generatePDFReportHTML(null, calculatedRecords, summary, currencyInfo);
+
+    expect(html.startsWith('<!DOCTYPE html>')).toBe(true);
+    expect(html).toContain('@page');
+    expect(html).toContain('size: A4');
+    expect(html).toContain('background: #ffffff');
+    expect(html).toContain('color: #0f172a');
+    // Koyu tema arka planı PDF'e taşınmaz.
+    expect(html).not.toContain('background: #0f172a');
+    expect(html).not.toContain('background: #111827');
+  });
+
+  it('üstte FinOps özet kartlarını, ortada model tablosunu içerir', () => {
+    const { calculatedRecords, summary } = createFixture();
+    const html = generatePDFReportHTML(null, calculatedRecords, summary, currencyInfo);
+
+    expect(html).toContain('class="pdf-summary"');
+    expect((html.match(/class="pdf-card(?![-\w])/g) || [])).toHaveLength(4);
+    expect(html).toContain('Normalde Ödenecek');
+    expect(html).toContain('Önbellek Tasarrufu');
+    expect(html).toContain('$0.26 / ₺9,58');
+
+    expect(html).toContain('class="pdf-table"');
+    expect(html).toContain('deepseek-v4.1-flash');
+    expect(html).toContain('glm-5.3');
+    expect(html).toContain('%60');
+  });
+
+  it('sayfa altbilgisinde küçük puntolu "Made by Burak Yıldız" imzası bulunur', () => {
+    const { calculatedRecords, summary } = createFixture();
+    const html = generatePDFReportHTML(null, calculatedRecords, summary, currencyInfo);
+
+    expect(html).toContain('class="pdf-footer"');
+    expect(html).toContain('font-size: 10px');
+    expect(html).toContain('#64748b');
+    expect(html).toContain(`<small class="app-signature">${SIGNATURE_TEXT}</small>`);
+  });
+
+  it('gruplanmış model listesi verilmezse kayıtlardan kendisi gruplar', () => {
+    const { calculatedRecords, summary } = createFixture();
+    const grouped = groupRecordsByModel(calculatedRecords);
+
+    expect(generatePDFReportHTML(null, calculatedRecords, summary, currencyInfo))
+      .toBe(generatePDFReportHTML(grouped, calculatedRecords, summary, currencyInfo));
+  });
+
+  it('model adını XML kaçışlı yazar ve boş girdide NaN üretmez', () => {
+    const records = buildCalculatedRecords(
+      [createTokenRecord({ model: '<b>kötü</b>model', requests: 1, totalTokens: 10, cachedTokens: 0, billedTokens: 10 })],
+      { catalog: {} },
+    );
+
+    const html = generatePDFReportHTML(null, records, aggregateUsageSummaries(records), { code: 'USD' });
+    expect(html).not.toContain('<b>kötü</b>model');
+    expect(html).toContain('&lt;b&gt;kötü&lt;/b&gt;model');
+
+    const empty = generatePDFReportHTML(null, [], null, null);
+    expect(empty).not.toContain('NaN');
+    expect(empty).not.toContain('undefined');
+  });
+});
+
+describe('Faz 39: exportToPDF', () => {
+  it('html2pdf benzeri üretici verilirse doğrudan .pdf dosyasını üretir', () => {
+    const generator = vi.fn(() => 'pdf-bytes');
+
+    const result = exportToPDF('<html></html>', 'rapor', generator);
+
+    expect(generator).toHaveBeenCalledTimes(1);
+    expect(generator.mock.calls[0][0]).toBe('<html></html>');
+    expect(generator.mock.calls[0][1]).toEqual({ filename: 'rapor.pdf' });
+    expect(result.mode).toBe('html2pdf');
+    expect(result.filename).toBe('rapor.pdf');
+  });
+
+  it('üretici yoksa izole yazdırma çerçevesi (iframe) ile yerel PDF motorunu tetikler', () => {
+    const printSpy = vi.fn();
+    const written = [];
+    const frame = {
+      className: '',
+      style: {},
+      setAttribute: vi.fn(),
+      contentDocument: {
+        open: () => written.push('open'),
+        write: (html) => written.push(html),
+        close: () => written.push('close'),
+      },
+      contentWindow: { focus: vi.fn(), print: printSpy },
+    };
+    const environment = {
+      document: { createElement: () => frame, body: { appendChild: vi.fn() } },
+    };
+
+    const result = exportToPDF('<html>rapor</html>', undefined, null, environment);
+
+    expect(result.mode).toBe('print');
+    expect(result.filename).toBe('tokencost-report.pdf');
+    expect(written).toContain('<html>rapor</html>');
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(frame.className).toContain('pdf-print-frame');
+  });
+
+  it('DOM yoksa anlamlı hata verir', () => {
+    expect(() => exportToPDF('<html></html>', 'x.pdf', null, { document: null }))
+      .toThrow('ERR_DOM_UNAVAILABLE');
+  });
+});
+
