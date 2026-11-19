@@ -11,6 +11,8 @@ import {
   downloadCSVFile,
   generatePDFReportHTML,
   exportToPDF,
+  generateMarkdownReport,
+  copyReportToClipboard,
 } from '../src/services/export-service.js';
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
 import { aggregateUsageSummaries, groupRecordsByModel } from '../src/core/calculator.js';
@@ -279,6 +281,68 @@ describe('Faz 39: exportToPDF', () => {
   it('DOM yoksa anlamlı hata verir', () => {
     expect(() => exportToPDF('<html></html>', 'x.pdf', null, { document: null }))
       .toThrow('ERR_DOM_UNAVAILABLE');
+  });
+});
+
+
+describe('Faz 40: generateMarkdownReport', () => {
+  it('geçerli bir GitHub Flavored Markdown (GFM) tablosu üretir', () => {
+    const { calculatedRecords, summary } = createFixture();
+    const markdown = generateMarkdownReport(groupRecordsByModel(calculatedRecords), summary);
+    const lines = markdown.split('\n');
+
+    expect(lines).toContain('| Model | İstek | Toplam Token | Önbellek (%) | Net Token | Tahmini Tutar (USD) |');
+    expect(lines[lines.indexOf('| Model | İstek | Toplam Token | Önbellek (%) | Net Token | Tahmini Tutar (USD) |') + 1])
+      .toBe('| :--- | ---: | ---: | ---: | ---: | ---: |');
+
+    expect(markdown).toContain('| deepseek-v4.1-flash | 341 | 1.000.000 | %60 | 400K | $0.10 |');
+    expect(markdown).toContain('| glm-5.3 |');
+  });
+
+  it('tablonun altında önbellek tasarruf özeti ve en altta imza bulunur', () => {
+    const { calculatedRecords, summary } = createFixture();
+    const markdown = generateMarkdownReport(groupRecordsByModel(calculatedRecords), summary);
+
+    expect(markdown).toContain('Önbellek Tasarrufu');
+    expect(markdown).toContain('$0.13');
+    expect(markdown).toContain('%53,33');
+    expect(markdown.trimEnd().endsWith(`<sub>${SIGNATURE_TEXT}</sub>`)).toBe(true);
+    expect(markdown.split('\n').at(-1)).toBe(`<sub>${SIGNATURE_TEXT}</sub>`);
+  });
+
+  it('model adındaki dikey çizgiyi kaçırır (tablo bozulmaz)', () => {
+    const rows = [{
+      model: 'a|b',
+      summary: { totalRequests: 1, totalTokens: 10, totalBilledTokens: 10, overallCacheHitRate: 0, totalCostUSD: 0.5 },
+    }];
+
+    expect(generateMarkdownReport(rows, null)).toContain('| a\\|b |');
+  });
+
+  it('boş girdide yalnızca başlık, toplam satırı ve imza üretir (NaN yok)', () => {
+    for (const input of [undefined, null, []]) {
+      const markdown = generateMarkdownReport(input);
+      expect(markdown).toContain('| Model | İstek | Toplam Token | Önbellek (%) | Net Token | Tahmini Tutar (USD) |');
+      expect(markdown).toContain('| **TOPLAM** |');
+      expect(markdown).not.toContain('NaN');
+      expect(markdown.trimEnd().endsWith(`<sub>${SIGNATURE_TEXT}</sub>`)).toBe(true);
+    }
+  });
+});
+
+describe('Faz 40: copyReportToClipboard', () => {
+  it('clipboard destekleniyorsa metni panoya yazar', async () => {
+    const writeText = vi.fn(async () => {});
+    await expect(copyReportToClipboard('# rapor', { writeText })).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith('# rapor');
+  });
+
+  it('clipboard yoksa veya hata verirse çökmez, false döner', async () => {
+    await expect(copyReportToClipboard('# rapor', null)).resolves.toBe(false);
+    await expect(copyReportToClipboard('# rapor', {})).resolves.toBe(false);
+    await expect(copyReportToClipboard('# rapor', {
+      writeText: async () => { throw new Error('BOOM'); },
+    })).resolves.toBe(false);
   });
 });
 

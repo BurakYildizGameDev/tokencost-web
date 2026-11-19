@@ -423,3 +423,87 @@ export function exportToPDF(reportHTML, filename = DEFAULT_PDF_FILENAME, pdfGene
   return { mode: printed.mode, filename: name, element: printed.element };
 }
 
+/** Markdown tablo hücresini güvenli hale getirir (| ve satır sonu kaçışı). */
+function escapeMarkdownCell(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/\|/g, '\\|')
+    .replace(/\r?\n/g, ' ');
+}
+
+/** Yüzde değerini 2 basamakla, Türkçe ondalık ayırıcıyla yazar (53.33 → "53,33"). */
+function formatPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0';
+  return String(Number(numeric.toFixed(2))).replace('.', ',');
+}
+
+/**
+ * Faz 40: GitHub Issue / PR içine yapıştırılabilir Markdown raporu üretir.
+ * GFM tablo hizalaması `| :--- | ---: |` sözdizimini kullanır.
+ * @param {Array<{ model: string, summary: object }>} groupedModels
+ * @param {object} [summary]
+ * @returns {string} Markdown
+ */
+export function generateMarkdownReport(groupedModels, summary) {
+  const groups = Array.isArray(groupedModels) ? groupedModels.filter(Boolean) : [];
+  const fallbackSummary = aggregateUsageSummaries(
+    groups.map((group) => (group && group.summary ? group.summary : {})),
+  );
+  const totals = summary && typeof summary === 'object' ? summary : fallbackSummary;
+
+  const rows = groups.map((group) => {
+    const groupSummary = group.summary && typeof group.summary === 'object' ? group.summary : {};
+    const model = escapeMarkdownCell(group.model === undefined ? '' : group.model);
+    const hitRate = formatPercent(groupSummary.overallCacheHitRate);
+
+    return `| ${model} | ${formatTokenCount(groupSummary.totalRequests).full} | ${formatTokenCount(groupSummary.totalTokens).full}`
+      + ` | %${hitRate} | ${formatTokenCount(groupSummary.totalBilledTokens).short}`
+      + ` | ${formatCostDisplay(groupSummary.totalCostUSD)} |`;
+  });
+
+  const totalRow = `| **TOPLAM** | ${formatTokenCount(totals.totalRequests).full}`
+    + ` | ${formatTokenCount(totals.totalTokens).full} | %${formatPercent(totals.overallCacheHitRate)}`
+    + ` | ${formatTokenCount(totals.totalBilledTokens).short} | ${formatCostDisplay(totals.totalCostUSD)} |`;
+
+  const savedUSD = Number(totals.totalSavedUSD) || 0;
+  const withoutCacheUSD = (Number(totals.totalCachedCostUSD) || 0) + savedUSD;
+
+  return [
+    '## TokenCost FinOps Analiz Raporu',
+    '',
+    '| Model | İstek | Toplam Token | Önbellek (%) | Net Token | Tahmini Tutar (USD) |',
+    '| :--- | ---: | ---: | ---: | ---: | ---: |',
+    ...rows,
+    totalRow,
+    '',
+    `**Önbellek Tasarrufu:** ${savedUSD > 0 ? `-${formatCostDisplay(savedUSD)} (Kâr)` : formatCostDisplay(0)}`
+      + ` — Önbellek isabet oranı: %${formatPercent(totals.overallCacheHitRate)}`,
+    `**Normalde Ödenecek (Önbelleksiz):** ${formatCostDisplay(withoutCacheUSD)}`,
+    '',
+    `<sub>${SIGNATURE_TEXT}</sub>`,
+  ].join('\n');
+}
+
+/**
+ * Faz 40: Raporu panoya kopyalar (tek tıkla paylaşım).
+ * Clipboard API yoksa veya hata verirse çökmez, `false` döner.
+ * @param {string} markdown
+ * @param {{ writeText?: Function }} [clipboard]
+ * @returns {Promise<boolean>}
+ */
+export function copyReportToClipboard(markdown, clipboard) {
+  const target = clipboard !== undefined
+    ? clipboard
+    : (typeof globalThis !== 'undefined' && globalThis.navigator ? globalThis.navigator.clipboard : null);
+  const text = typeof markdown === 'string' ? markdown : '';
+
+  if (!target || typeof target.writeText !== 'function') return Promise.resolve(false);
+
+  try {
+    return Promise.resolve(target.writeText(text))
+      .then(() => true)
+      .catch(() => false);
+  } catch {
+    return Promise.resolve(false);
+  }
+}
