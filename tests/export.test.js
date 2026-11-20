@@ -13,7 +13,18 @@ import {
   exportToPDF,
   generateMarkdownReport,
   copyReportToClipboard,
+  encodeStateToHash,
+  decodeStateFromHash,
+  HASH_STATE_PREFIX,
 } from '../src/services/export-service.js';
+
+/** '#data=' gövdesini (URL güvenli Base64) düz metne çözer. */
+function decodeHashPayload(hash) {
+  const encoded = String(hash).slice(HASH_STATE_PREFIX.length);
+  const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return decodeURIComponent(atob(padded));
+}
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
 import { aggregateUsageSummaries, groupRecordsByModel } from '../src/core/calculator.js';
 import { buildCalculatedRecords } from '../src/ui/store.js';
@@ -343,6 +354,108 @@ describe('Faz 40: copyReportToClipboard', () => {
     await expect(copyReportToClipboard('# rapor', {
       writeText: async () => { throw new Error('BOOM'); },
     })).resolves.toBe(false);
+  });
+});
+
+
+describe('Faz 41: encodeStateToHash / decodeStateFromHash', () => {
+  it('#data= önekli, URL güvenli Base64 kodlama üretir', () => {
+    const { records } = createFixture();
+    const hash = encodeStateToHash(records);
+
+    expect(HASH_STATE_PREFIX).toBe('#data=');
+    expect(hash.startsWith('#data=')).toBe(true);
+
+    const encoded = hash.slice(HASH_STATE_PREFIX.length);
+    expect(encoded).toMatch(/^[A-Za-z0-9\-_]+$/);
+    expect(encoded).not.toContain('+');
+    expect(encoded).not.toContain('/');
+    expect(encoded).not.toContain('=');
+  });
+
+  it('Türkçe karakterli veriyi btoa hatası vermeden birebir geri çözer', () => {
+    const records = [
+      createTokenRecord({
+        date: '14 Eki',
+        model: 'ölçüm-çğı-şü-ÖÜ',
+        requests: 341,
+        totalTokens: 1_000_000,
+        cachedTokens: 600_000,
+        billedTokens: 400_000,
+      }),
+      createTokenRecord({
+        date: '13 Eki',
+        model: 'glm-5.3',
+        requests: 120,
+        totalTokens: 500_000,
+        cachedTokens: 200_000,
+        billedTokens: 300_000,
+      }),
+    ];
+
+    const decoded = decodeStateFromHash(encodeStateToHash(records));
+
+    expect(decoded).toHaveLength(2);
+    expect(decoded[0]).toMatchObject({
+      date: '14 Eki',
+      model: 'ölçüm-çğı-şü-ÖÜ',
+      requests: 341,
+      totalTokens: 1_000_000,
+      cachedTokens: 600_000,
+      billedTokens: 400_000,
+    });
+    expect(decoded[1].model).toBe('glm-5.3');
+    expect(typeof decoded[0].id).toBe('string');
+  });
+
+  it('kısaltılmış anahtarlarla (m/r/t/c/b) URL uzunluğunu minimumda tutar', () => {
+    const { records } = createFixture();
+    const payload = decodeHashPayload(encodeStateToHash(records));
+
+    expect(payload).toContain('"m":"deepseek-v4.1-flash"');
+    expect(payload).toContain('"r":341');
+    expect(payload).toContain('"t":1000000');
+    expect(payload).toContain('"c":600000');
+    expect(payload).toContain('"b":400000');
+    expect(payload).not.toContain('"model"');
+    expect(payload).not.toContain('"totalTokens"');
+  });
+
+  it('bozuk veya manipüle edilmiş hash verildiğinde null döner (uygulama çökmez)', () => {
+    const badInputs = [
+      '',
+      '   ',
+      '#',
+      '#data=',
+      'data=',
+      '#data=%%%',
+      `#data=${btoa('{bozuk')}`,
+      `#data=${btoa('[]')}`,
+      `#data=${btoa('{"v":1}')}`,
+      `#data=${btoa(JSON.stringify({ v: 1, rows: [{ m: '', r: 1 }] }))}`,
+      'https://example.com/#data=xyz',
+      null,
+      undefined,
+      42,
+      {},
+    ];
+
+    for (const input of badInputs) {
+      expect(decodeStateFromHash(input)).toBeNull();
+    }
+  });
+
+  it('tam URL biçimindeki paylaşım bağlantısını da çözebilir', () => {
+    const { records } = createFixture();
+    const hash = encodeStateToHash(records);
+    const url = `https://burak.github.io/tokencost-finops/${hash}`;
+
+    const decoded = decodeStateFromHash(url);
+
+    expect(decoded).toHaveLength(2);
+    expect(decoded[0].model).toBe('deepseek-v4.1-flash');
+    expect(decodeStateFromHash(encodeStateToHash([]))).toEqual([]);
+    expect(decodeStateFromHash(encodeStateToHash(null))).toEqual([]);
   });
 });
 

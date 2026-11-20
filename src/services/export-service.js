@@ -5,6 +5,7 @@
 
 import { aggregateUsageSummaries, groupRecordsByModel } from '../core/calculator.js';
 import { formatCostDisplay, formatTokenCount } from '../core/formatter.js';
+import { createTokenRecord } from '../core/schema.js';
 import { convertCurrency } from './currency-service.js';
 
 /** Uygulamanın her çıktısında (footer, .csv, .pdf, .md) kullanılan tek imza sabiti. */
@@ -507,3 +508,93 @@ export function copyReportToClipboard(markdown, clipboard) {
     return Promise.resolve(false);
   }
 }
+
+/** Faz 41: URL hash durum paylaşımı öneki. */
+export const HASH_STATE_PREFIX = '#data=';
+
+/** Paylaşılan bağlantı formatı sürümü (ileriye dönük uyumluluk). */
+export const HASH_STATE_VERSION = 1;
+
+/** Metni URL güvenli Base64'e çevirir (btoa + Türkçe karakter güvenliği). */
+function encodeBase64Url(text) {
+  return btoa(encodeURIComponent(text))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+/** URL güvenli Base64 metnini geri çözer (eksik dolguyu tamamlar). */
+function decodeBase64Url(encoded) {
+  const normalized = String(encoded).replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = normalized.length % 4;
+  const padded = remainder === 0 ? normalized : normalized + '='.repeat(4 - remainder);
+  return decodeURIComponent(atob(padded));
+}
+
+/**
+ * Kaydı URL için kısaltır: m = model, d = tarih, r = istek, t = toplam,
+ * c = önbellek, b = kota (billed).
+ * @param {object} record
+ * @returns {object}
+ */
+function toCompactRecord(record) {
+  const compact = {};
+  if (typeof record.date === 'string' && record.date !== '') compact.d = record.date;
+  compact.m = typeof record.model === 'string' ? record.model : '';
+  compact.r = Math.round(toNumber(record.requests));
+  compact.t = Math.round(toNumber(record.totalTokens));
+  compact.c = Math.round(toNumber(record.cachedTokens));
+  compact.b = Math.round(toNumber(record.billedTokens));
+  return compact;
+}
+
+/**
+ * Faz 41: Kayıtları sunucusuz (zero-backend) paylaşılabilir bir URL hash'ine kodlar.
+ * @param {object[]} records
+ * @returns {string} '#data=<base64url>'
+ */
+export function encodeStateToHash(records = []) {
+  const rows = (Array.isArray(records) ? records : [])
+    .filter((record) => record && typeof record === 'object')
+    .map(toCompactRecord);
+
+  return `${HASH_STATE_PREFIX}${encodeBase64Url(JSON.stringify({ v: HASH_STATE_VERSION, rows }))}`;
+}
+
+/**
+ * Faz 41: Paylaşılan hash'i (veya tam URL'yi) kayıt listesine geri çözer.
+ * Bozuk/manipüle edilmiş girdide ASLA hata fırlatmaz; `null` döner.
+ * @param {string} hashString
+ * @returns {object[]|null}
+ */
+export function decodeStateFromHash(hashString) {
+  if (typeof hashString !== 'string') return null;
+
+  try {
+    let raw = hashString.trim();
+    if (raw === '') return null;
+
+    const hashIndex = raw.indexOf('#');
+    if (hashIndex >= 0) raw = raw.slice(hashIndex + 1);
+    if (!raw.startsWith('data=')) return null;
+
+    const encoded = raw.slice('data='.length).trim();
+    if (encoded === '') return null;
+
+    const payload = JSON.parse(decodeBase64Url(encoded));
+    const rows = payload && Array.isArray(payload.rows) ? payload.rows : null;
+    if (!rows) return null;
+
+    return rows.filter(Boolean).map((row) => createTokenRecord({
+      date: row.d,
+      model: row.m,
+      requests: toNumber(row.r),
+      totalTokens: toNumber(row.t),
+      cachedTokens: toNumber(row.c),
+      billedTokens: toNumber(row.b),
+    }));
+  } catch {
+    return null;
+  }
+}
+
