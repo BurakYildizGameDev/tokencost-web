@@ -11,10 +11,12 @@ import {
 import {
   renderUsageTable,
   renderFinOpsSummaryCards,
+  renderAppFooter,
   updateProgressBanner,
   showNotification,
   notifyUnknownModelPrices,
   FALLBACK_PRICING_MESSAGE,
+  SIGNATURE_TEXT,
 } from '../src/ui/components.js';
 import { createAppStore } from '../src/ui/store.js';
 import { createTokenRecord, createPricingProfile } from '../src/core/schema.js';
@@ -739,5 +741,78 @@ describe('Faz 37: renderFinOpsSummaryCards', () => {
   it('geçersiz kapsayıcıda TypeError fırlatır', () => {
     expect(() => renderFinOpsSummaryCards(null, createSummary())).toThrow(TypeError);
   });
+
+describe('Faz 42: renderAppFooter ve SIGNATURE_TEXT', () => {
+  it('SIGNATURE_TEXT sabiti tam olarak "Made by Burak Yıldız" değerine eşittir', () => {
+    expect(SIGNATURE_TEXT).toBe('Made by Burak Yıldız');
+  });
+
+  it('sayfanın en altında küçük zarif imzayı oluşturur', () => {
+    const footer = createContainer();
+    renderAppFooter(footer);
+
+    const wrapper = footer.querySelector('footer.app-footer');
+    const signature = footer.querySelector('small.app-signature');
+
+    expect(wrapper).not.toBeNull();
+    expect(signature).not.toBeNull();
+    expect(signature.textContent).toBe(SIGNATURE_TEXT);
+    expect(wrapper.contains(signature)).toBe(true);
+  });
+
+  it('imza metni İngilizce sabit olarak yazılır (Türkçeye çevrilmez)', () => {
+    const footer = createContainer();
+    renderAppFooter(footer);
+
+    expect(footer.innerHTML).toContain('Made by Burak Yıldız');
+    expect(footer.innerHTML).not.toContain('Yapıldı');
+    expect(footer.innerHTML).not.toContain('tarafından');
+  });
+
+  it('araç çubuğunda .CSV ve .PDF butonları görünür ve tıklanabilir', () => {
+    const footer = createContainer();
+    const onExportCSV = vi.fn();
+    const onExportPDF = vi.fn();
+    renderAppFooter(footer, { onExportCSV, onExportPDF });
+
+    const csvButton = footer.querySelector('#btn-export-csv');
+    const pdfButton = footer.querySelector('#btn-export-pdf');
+
+    expect(csvButton).not.toBeNull();
+    expect(pdfButton).not.toBeNull();
+    expect(csvButton.tagName).toBe('BUTTON');
+    expect(pdfButton.tagName).toBe('BUTTON');
+    expect(csvButton.disabled).toBe(false);
+    expect(pdfButton.disabled).toBe(false);
+    expect(csvButton.textContent).toContain('.CSV');
+    expect(pdfButton.textContent).toContain('.PDF');
+
+    csvButton.click();
+    pdfButton.click();
+
+    expect(onExportCSV).toHaveBeenCalledTimes(1);
+    expect(onExportPDF).toHaveBeenCalledTimes(1);
+  });
+
+  it('iki kez çağrıldığında imzayı ve butonları çoğaltmaz (idempotent)', () => {
+    const footer = createContainer();
+    renderAppFooter(footer, { onExportCSV: () => {} });
+    renderAppFooter(footer, { onExportCSV: () => {} });
+
+    expect(footer.querySelectorAll('footer.app-footer')).toHaveLength(1);
+    expect(footer.querySelectorAll('small.app-signature')).toHaveLength(1);
+    expect(footer.querySelectorAll('#btn-export-csv')).toHaveLength(1);
+    expect(footer.querySelectorAll('#btn-export-pdf')).toHaveLength(1);
+  });
+
+  it('geçersiz kapsayıcıda TypeError fırlatır, handler verilmezse çökmez', () => {
+    expect(() => renderAppFooter(null)).toThrow(TypeError);
+
+    const footer = createContainer();
+    renderAppFooter(footer);
+    expect(() => footer.querySelector('#btn-export-csv').click()).not.toThrow();
+  });
+});
+
 });
 

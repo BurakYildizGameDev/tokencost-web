@@ -6,6 +6,7 @@
 import { aggregateUsageSummaries } from '../core/calculator.js';
 import { formatCostDisplay, formatTokenCount } from '../core/formatter.js';
 import { convertCurrency } from '../services/currency-service.js';
+import { SIGNATURE_TEXT } from '../services/export-service.js';
 
 /** Kullanıcı tarafından düzenlenebilen hücre alanları. */
 export const EDITABLE_FIELDS = Object.freeze([
@@ -386,7 +387,74 @@ export function renderUsageTable(containerEl, calculatedRecords, store) {
   };
 }
 
-/** FinOps özet kartlarının etiketleri (Faz 37). */
+// Toplam imza metni TEK MERKEZDEN gelir: hem UI footer'da hem .csv/.pdf/.md
+// çıktılarında aynı sabit kullanılır (harf hatası riski sıfırlanır).
+export { SIGNATURE_TEXT };
+
+/** Uygulama altbilgisinin kök sınıfı (Faz 42). */
+export const APP_FOOTER_CLASS = 'app-footer';
+
+/** Dışa aktarım araç çubuğu buton kimlikleri. */
+export const EXPORT_CSV_BUTTON_ID = 'btn-export-csv';
+export const EXPORT_PDF_BUTTON_ID = 'btn-export-pdf';
+
+/**
+ * Faz 42: Altbilgiyi (imza + .csv/.pdf araç çubuğu) çizer.
+ * İkinci çağrıda mevcut altbilgi yeniden kullanılır; imza/butonlar çoğaltılmaz.
+ * @param {HTMLElement} footerEl
+ * @param {{ onExportCSV?: Function, onExportPDF?: Function }} [options]
+ * @returns {{ element: HTMLElement, signatureEl: HTMLElement, csvButton: HTMLElement, pdfButton: HTMLElement }}
+ */
+export function renderAppFooter(footerEl, options = {}) {
+  if (!footerEl || typeof footerEl.querySelector !== 'function') {
+    throw new TypeError('ERR_INVALID_FOOTER_ELEMENT');
+  }
+
+  const doc = footerEl.ownerDocument;
+  let wrapper = footerEl.querySelector(`footer.${APP_FOOTER_CLASS}`);
+
+  if (!wrapper) {
+    wrapper = doc.createElement('footer');
+    wrapper.className = APP_FOOTER_CLASS;
+
+    const toolbar = doc.createElement('div');
+    toolbar.className = 'export-toolbar no-print';
+
+    const csvButton = doc.createElement('button');
+    csvButton.type = 'button';
+    csvButton.id = EXPORT_CSV_BUTTON_ID;
+    csvButton.className = 'btn-export btn-export--csv';
+    csvButton.textContent = '.CSV İndir';
+
+    const pdfButton = doc.createElement('button');
+    pdfButton.type = 'button';
+    pdfButton.id = EXPORT_PDF_BUTTON_ID;
+    pdfButton.className = 'btn-export btn-export--pdf';
+    pdfButton.textContent = '.PDF İndir';
+
+    toolbar.appendChild(csvButton);
+    toolbar.appendChild(pdfButton);
+
+    const signatureEl = doc.createElement('small');
+    signatureEl.className = 'app-signature';
+    signatureEl.textContent = SIGNATURE_TEXT;
+
+    wrapper.appendChild(toolbar);
+    wrapper.appendChild(signatureEl);
+    footerEl.appendChild(wrapper);
+  }
+
+  const csvButton = wrapper.querySelector(`#${EXPORT_CSV_BUTTON_ID}`);
+  const pdfButton = wrapper.querySelector(`#${EXPORT_PDF_BUTTON_ID}`);
+  const signatureEl = wrapper.querySelector('.app-signature');
+
+  // onclick özelliği atandığı için ardışık bağlamalar dinleyici biriktirmez.
+  if (csvButton) csvButton.onclick = typeof options.onExportCSV === 'function' ? options.onExportCSV : null;
+  if (pdfButton) pdfButton.onclick = typeof options.onExportPDF === 'function' ? options.onExportPDF : null;
+
+  return { element: wrapper, signatureEl, csvButton, pdfButton };
+}
+
 export const FINOPS_METRIC_LABELS = Object.freeze({
   withoutCache: 'Normalde Ödenecek (Önbelleksiz)',
   cacheSavings: 'Önbellek Tasarrufu',
