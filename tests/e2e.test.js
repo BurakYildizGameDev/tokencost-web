@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // tests/e2e.test.js
 // Faz 43 - 46: Uçtan uca (E2E) senaryo testleri.
 // Faz 43: Örnek konsol veri seti (demo-data) | Faz 44: Uygulama orkestratörü
@@ -18,9 +19,25 @@ import {
   SAMPLE_SCREENSHOT_TEXTS,
   getSampleScreenshotDataset,
 } from '../src/core/demo-data.js';
+import {
+  APP_ROOT_CLASS,
+  CARDS_CONTAINER_ID,
+  CHART_CONTAINER_ID,
+  CURRENCY_SELECT_ID,
+  DEFAULT_THEME,
+  FOOTER_CONTAINER_ID,
+  TABLE_CONTAINER_ID,
+  THEME_STORAGE_KEY,
+  THEME_TOGGLE_ID,
+  TOAST_CONTAINER_ID,
+  initApp,
+} from '../src/app.js';
+import { EXPORT_CSV_BUTTON_ID, EXPORT_PDF_BUTTON_ID, SIGNATURE_TEXT } from '../src/ui/components.js';
 import { parsePastedTableText } from '../src/core/parser.js';
 import { formatCostDisplay, formatTokenCount } from '../src/core/formatter.js';
+import { encodeStateToHash } from '../src/services/export-service.js';
 import { createAppStore } from '../src/ui/store.js';
+
 
 /** Kayıt dizisinde bir alanı tek geçişte toplar. */
 function sumBy(rows, field) {
@@ -110,3 +127,232 @@ describe('Faz 43: Örnek konsol veri seti (demo-data)', () => {
     expect(DEMO_BUTTON_LABEL).toBe('Örnek Konsol Verisi Yükle (333.7M Token)');
   });
 });
+
+/** Test için sahte localStorage uygulaması (jsdom'da da izole çalışır). */
+function createFakeStorage() {
+  const map = new Map();
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => { map.set(key, String(value)); },
+    removeItem: (key) => { map.delete(key); },
+    clear: () => map.clear(),
+    get size() { return map.size; },
+  };
+}
+
+/**
+ * Çevrimdışı (ağ yok) modda, izole bir kök element üzerinde uygulamayı başlatır.
+ * `fetchFn` her zaman reddeder; böylece test ağa çıkmaz ve statik katalog kullanılır.
+ */
+function createOfflineApp(overrides = {}) {
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+
+  const app = initApp(root, {
+    fetchFn: async () => { throw new Error('offline'); },
+    storage: createFakeStorage(),
+    environment: { document },
+    initialHash: '',
+    ...overrides,
+  });
+
+  return { root, app };
+}
+
+describe('Faz 44: Ana uygulama orkestratörü (initApp)', () => {
+  it('başlangıçta tarayıcı/İK için vitrin iskeletini ve imzayı çizer', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    expect(root.classList.contains(APP_ROOT_CLASS)).toBe(true);
+    expect(root.querySelector('.app-signature').textContent).toBe(SIGNATURE_TEXT);
+    expect(root.querySelector(`#${DEMO_BUTTON_ID}`).textContent).toBe(DEMO_BUTTON_LABEL);
+    expect(root.querySelector(`#${FOOTER_CONTAINER_ID} #${EXPORT_CSV_BUTTON_ID}`)).not.toBeNull();
+    expect(root.querySelector(`#${FOOTER_CONTAINER_ID} #${EXPORT_PDF_BUTTON_ID}`)).not.toBeNull();
+    expect(root.querySelector(`#${CURRENCY_SELECT_ID}`).value).toBe('USD');
+    expect(root.dataset.theme).toBe(DEFAULT_THEME);
+
+    const state = app.store.getState();
+    expect(state.records).toHaveLength(0);
+    expect(formatCostDisplay(state.summary.totalCostUSD)).toBe('$0.00');
+  });
+
+  it('fiyat servisi erişilemezse statik demo kataloğuna düşer ve bilgilendirir', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    expect(app.pricing.source).toBe('fallback');
+    expect(app.pricing.isOfflineFallback).toBe(true);
+    const catalog = app.store.getState().pricingCatalog;
+    expect(Object.keys(catalog).length).toBeGreaterThanOrEqual(4);
+    expect(root.querySelectorAll('.toast--info').length).toBeGreaterThan(0);
+  });
+
+  it('URL paylaşılan #data= hash durumunu çözüp tabloya yükler', async () => {
+    const hash = encodeStateToHash(getSampleScreenshotDataset());
+    const { app } = createOfflineApp({ initialHash: hash });
+    await app.ready;
+
+    const state = app.store.getState();
+    expect(state.records).toHaveLength(13);
+    expect(formatTokenCount(state.summary.totalTokens).full).toBe('333.698.885');
+    expect(formatCostDisplay(state.summary.totalCostUSD)).toBe('$13.80');
+  });
+
+  it('bozuk hash verildiğinde çökmez, boş başlangıç durumunda kalır', async () => {
+    const { app } = createOfflineApp({ initialHash: '#data=bozuk-veri' });
+    await app.ready;
+
+    expect(app.store.getState().records).toHaveLength(0);
+  });
+
+  it('"Örnek Konsol Verisi Yükle" butonu 13 satırı ve $13.80 sonucunu canlı gösterir', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    root.querySelector(`#${DEMO_BUTTON_ID}`).click();
+    const state = app.store.getState();
+
+    expect(state.records).toHaveLength(13);
+    expect(formatCostDisplay(state.summary.totalCostUSD)).toBe('$13.80');
+    expect(state.unknownModels).toEqual([]);
+
+    // FinOps kartları, düzenlenebilir tablo ve halka grafik anında güncellenir.
+    const invoiceCard = root.querySelector('[data-metric="invoice"] .finops-card-value');
+    expect(invoiceCard.textContent).toContain('$13.80');
+    expect(root.querySelectorAll(`#${TABLE_CONTAINER_ID} tbody tr`)).toHaveLength(13);
+    expect(root.querySelector(`#${CHART_CONTAINER_ID} svg.donut-chart`)).not.toBeNull();
+    expect(root.querySelectorAll('.toast--success').length).toBeGreaterThan(0);
+  });
+
+  it('para birimi seçici USD/TRY/EUR kartları ve dışa aktarımı senkron günceller', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+    root.querySelector(`#${DEMO_BUTTON_ID}`).click();
+
+    const select = root.querySelector(`#${CURRENCY_SELECT_ID}`);
+    select.value = 'TRY';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+    expect(app.store.getState().currency).toBe('TRY');
+    expect(app.currencyInfo.code).toBe('TRY');
+    expect(app.currencyInfo.rate).toBe(34);
+    expect(root.querySelector('[data-metric="invoice"] .finops-card-value').textContent).toContain('₺');
+
+    app.setCurrency('EUR');
+    expect(app.store.getState().currency).toBe('EUR');
+    expect(root.querySelector(`#${CURRENCY_SELECT_ID}`).value).toBe('EUR');
+  });
+
+  it('tema değiştirici dark/light geçişini köke ve depoya yazar', async () => {
+    const storage = createFakeStorage();
+    const { root, app } = createOfflineApp({ storage });
+    await app.ready;
+
+    expect(app.theme).toBe('dark');
+    expect(root.dataset.theme).toBe('dark');
+
+    root.querySelector(`#${THEME_TOGGLE_ID}`).click();
+    expect(app.theme).toBe('light');
+    expect(root.dataset.theme).toBe('light');
+    expect(root.classList.contains('theme-light')).toBe(true);
+    expect(storage.getItem(THEME_STORAGE_KEY)).toBe('light');
+
+    root.querySelector(`#${THEME_TOGGLE_ID}`).click();
+    expect(app.theme).toBe('dark');
+    expect(storage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+  });
+
+  it('.csv ve .pdf butonları export servislerine bağlanır (imza güvenliği)', async () => {
+    const generated = [];
+    const { root, app } = createOfflineApp({
+      URL: { createObjectURL: () => 'blob:token', revokeObjectURL: () => {} },
+      pdfGeneratorFn: (html, config) => {
+        generated.push({ html, config });
+        return Promise.resolve('pdf-ok');
+      },
+    });
+    await app.ready;
+    root.querySelector(`#${DEMO_BUTTON_ID}`).click();
+
+    const csvButton = root.querySelector(`#${EXPORT_CSV_BUTTON_ID}`);
+    const pdfButton = root.querySelector(`#${EXPORT_PDF_BUTTON_ID}`);
+    expect(csvButton.getAttribute('aria-label')).toBe('CSV raporunu indir');
+    expect(pdfButton.getAttribute('aria-label')).toBe('PDF raporu oluştur');
+
+    const csvResult = app.exportCSV();
+    expect(csvResult.filename).toBe('tokencost-report.csv');
+    expect(csvResult.objectUrl).toBe('blob:token');
+    expect(csvResult.blob.size).toBeGreaterThan(0);
+
+    pdfButton.click();
+    expect(generated).toHaveLength(1);
+    expect(generated[0].config.filename).toBe('tokencost-report.pdf');
+    expect(generated[0].html).toContain(SIGNATURE_TEXT);
+    expect(generated[0].html).toContain('$13.80');
+    expect(app.toasts.success).toBeGreaterThanOrEqual(2);
+  });
+
+  it('dışa aktarımda veri yoksa uyarı verir (boş rapor üretmez)', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    expect(app.exportCSV()).toBeNull();
+    expect(app.exportPDF()).toBeNull();
+    expect(root.querySelectorAll('.toast--warning').length).toBe(2);
+  });
+
+  it('ham metin ve .csv dosyası yüklendiğinde aynı toplamı üretir', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    const pasted = app.loadText(SAMPLE_PASTED_TABLE_TEXT);
+    expect(pasted.added).toBe(13);
+    expect(formatCostDisplay(app.store.getState().summary.totalCostUSD)).toBe('$13.80');
+
+    app.store.clearRecords();
+    expect(app.store.getState().records).toHaveLength(0);
+
+    const csvFile = new File([SAMPLE_PASTED_TABLE_TEXT], 'kullanim.csv', { type: 'text/csv' });
+    await app.loadFiles([csvFile]);
+
+    expect(app.store.getState().records).toHaveLength(13);
+    expect(root.querySelectorAll(`#${TABLE_CONTAINER_ID} tbody tr`)).toHaveLength(13);
+    expect(formatCostDisplay(app.store.getState().summary.totalCostUSD)).toBe('$13.80');
+  });
+
+  it('anlaşılmaz metinde uyarı verir, satır eklemez', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    const result = app.loadText('bu bir kullanım tablosu değil');
+
+    expect(result.added).toBe(0);
+    expect(app.store.getState().records).toHaveLength(0);
+    expect(root.querySelectorAll('.toast--warning').length).toBe(1);
+  });
+
+  it('OCR motoru yokken görsel için kibar uyarı verir (çökmez)', async () => {
+    const { root, app } = createOfflineApp();
+    await app.ready;
+
+    const image = new File(['x'], 'ekran-goruntusu.png', { type: 'image/png' });
+    const results = await app.loadFiles([image]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].records).toEqual([]);
+    expect(app.store.getState().records).toHaveLength(0);
+    expect(root.querySelectorAll('.toast--warning').length).toBe(1);
+  });
+
+  it('destroy() çağrısı store aboneliğini ve tablo bağını bırakır', async () => {
+    const { app } = createOfflineApp();
+    await app.ready;
+    const before = app.store.getListenerCount();
+
+    app.destroy();
+
+    expect(app.store.getListenerCount()).toBeLessThan(before);
+  });
+});
+
