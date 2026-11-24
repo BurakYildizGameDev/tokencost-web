@@ -26,6 +26,7 @@ import {
   CURRENCY_SELECT_ID,
   DEFAULT_THEME,
   FOOTER_CONTAINER_ID,
+  PROGRESS_BANNER_ID,
   TABLE_CONTAINER_ID,
   THEME_STORAGE_KEY,
   THEME_TOGGLE_ID,
@@ -34,9 +35,18 @@ import {
 } from '../src/app.js';
 import { EXPORT_CSV_BUTTON_ID, EXPORT_PDF_BUTTON_ID, SIGNATURE_TEXT } from '../src/ui/components.js';
 import { parsePastedTableText } from '../src/core/parser.js';
+import { normalizeModelName, resolveModelAlias } from '../src/core/normalizer.js';
+import { aggregateUsageSummaries, groupRecordsByModel } from '../src/core/calculator.js';
 import { formatCostDisplay, formatTokenCount } from '../src/core/formatter.js';
-import { encodeStateToHash } from '../src/services/export-service.js';
-import { createAppStore } from '../src/ui/store.js';
+import {
+  CSV_UTF8_BOM,
+  encodeStateToHash,
+  generateCSVContent,
+  generateMarkdownReport,
+  generatePDFReportHTML,
+} from '../src/services/export-service.js';
+import { cleanOCRTableArtefacts, processMultipleImagesToRecords } from '../src/ocr/ocr-engine.js';
+import { buildCalculatedRecords, createAppStore } from '../src/ui/store.js';
 
 
 /** Kayıt dizisinde bir alanı tek geçişte toplar. */
@@ -356,3 +366,56 @@ describe('Faz 44: Ana uygulama orkestratörü (initApp)', () => {
   });
 });
 
+describe('Faz 45: Ham metinden faturaya, .csv ve .pdf çıktısına tam akış', () => {
+  it('E2E: Ham metin yapıştırmadan $13.80 faturaya, .csv ve .pdf çıktısına ve Made by Burak Yıldız imzasına tam akış', () => {
+    // 1) Ham metin -> kayıtlar (özet satırı elenir, 13 veri satırı kalır)
+    const parsed = parsePastedTableText(SAMPLE_PASTED_TABLE_TEXT);
+    expect(parsed.records).toHaveLength(13);
+    expect(parsed.parsedSummaryRow).not.toBeNull();
+
+    // 2) Normalizasyon + takma ad: sağlayıcı önekli ad kanonik fiyat anahtarına iner
+    const firstRow = parsed.records[0];
+    expect(normalizeModelName(firstRow.model)).toBe('deepseek-v4.1-flash');
+    expect(resolveModelAlias(normalizeModelName(firstRow.model))).toBe('deepseek-chat');
+
+    // 3) Satır bazlı maliyet + 4) kümülatif özet (FinOps motoru)
+    const calculated = buildCalculatedRecords(parsed.records, { catalog: DEMO_PRICING_CATALOG });
+    expect(calculated).toHaveLength(13);
+    expect(calculated.every((row) => row.pricingSource === 'custom')).toBe(true);
+
+    const summary = aggregateUsageSummaries(calculated);
+    expect(summary.totalTokens).toBe(DEMO_TOTAL_TOKENS);
+    expect(summary.totalRequests).toBe(DEMO_TOTAL_REQUESTS);
+    expect(formatCostDisplay(summary.totalCostUSD)).toBe('$13.80');
+
+    const grouped = groupRecordsByModel(calculated);
+    expect(grouped).toHaveLength(4);
+
+    // 5) .csv çıktısı: UTF-8 BOM + başlık + 13 satır + TOPLAM + imza satırı
+    const csv = generateCSVContent(calculated, summary);
+    expect(csv.startsWith(CSV_UTF8_BOM)).toBe(true);
+
+    const csvLines = csv.replace(CSV_UTF8_BOM, '').split('\n');
+    expect(csvLines).toHaveLength(16);
+    expect(csvLines[0]).toBe(
+      'Tarih,Model,İstek,Toplam Token,Önbelleklenen,Kotaya Yansıyan,'
+      + 'Önbellek Tasarrufu (USD),Tahmini Tutar (USD)',
+    );
+    expect(csvLines[14].startsWith('TOPLAM,')).toBe(true);
+    expect(csvLines[14]).toContain('333698885');
+    expect(csvLines[15]).toBe(`"${SIGNATURE_TEXT}"`);
+
+    // 6) .pdf (yazdırılabilir HTML raporu): fatura + en altta imza
+    const pdfHTML = generatePDFReportHTML(grouped, calculated, summary, { code: 'USD', rate: 1, symbol: '$' });
+    expect(pdfHTML).toContain('TokenCost FinOps Analiz Raporu');
+    expect(pdfHTML).toContain('$13.80');
+    expect(pdfHTML).toContain(`<small class="app-signature">${SIGNATURE_TEXT}</small>`);
+    expect(pdfHTML.indexOf(SIGNATURE_TEXT)).toBeGreaterThan(pdfHTML.lastIndexOf('</table>'));
+
+    // 7) GitHub Issue/PR için Markdown raporu da aynı imzayı taşır
+    const markdown = generateMarkdownReport(grouped, summary);
+    expect(markdown).toContain('| Model |');
+    expect(markdown).toContain('$13.80');
+    expect(markdown).toContain(`<sub>${SIGNATURE_TEXT}</sub>`);
+  });
+});
