@@ -419,3 +419,92 @@ describe('Faz 45: Ham metinden faturaya, .csv ve .pdf çıktısına tam akış',
     expect(markdown).toContain(`<sub>${SIGNATURE_TEXT}</sub>`);
   });
 });
+
+describe('Faz 46: Çoklu ekran görüntüsü OCR ve tekilleştirme', () => {
+  /** OCR'a verilebilecek sahte görsel (resolveImageData: imageData alanını okur). */
+  function createFakeImage(index) {
+    return {
+      name: `ekran-${index}.png`,
+      type: 'image/png',
+      imageData: { data: [], width: 1, height: 1, order: index },
+    };
+  }
+
+  /** Görsel sırasına göre önceden hazırlanmış OCR metnini döndüren sahte yönetici. */
+  function createFakeOCRManager(texts) {
+    const calls = [];
+    return {
+      calls,
+      recognize: async (imageData) => {
+        calls.push(imageData.order);
+        const text = texts[Number(imageData.order) - 1];
+        if (typeof text !== 'string') throw new Error('OCR_FAILED');
+        return { data: { text } };
+      },
+    };
+  }
+
+  it('OCR gürültüsünü düzeltir: O -> 0, Z -> 2, gIm -> glm (gerçek harfleri korur)', () => {
+    expect(cleanOCRTableArtefacts('3.6O0.O00')).toBe('3.600.000');
+    expect(cleanOCRTableArtefacts('9Z')).toBe('92');
+    expect(cleanOCRTableArtefacts('gIm-5.3')).toBe('glm-5.3');
+    expect(cleanOCRTableArtefacts('qwen3-vl-30b')).toBe('qwen3-vl-30b');
+  });
+
+  it('E2E: 3 parçalı ekran görüntüsü OCR çıktılarının birleştirilmesi, örtüşen satırların silinmesi ve maliyet hesabı', async () => {
+    // 2. görsel OCR gürültüsü içerir; 6 Eki glm-5.3 satırı 1. ve 2. görselde ÖRTÜŞÜR.
+    const noisySecondScreenshot = SAMPLE_SCREENSHOT_TEXTS[1]
+      .replace('glm-5.3', 'gIm-5.3')
+      .replace('3.600.000', '3.6O0.O00')
+      .replace('\t92\t', '\t9Z\t');
+
+    expect(noisySecondScreenshot).toContain('gIm-5.3');
+    expect(noisySecondScreenshot).toContain('\t9Z\t');
+
+    const manager = createFakeOCRManager([
+      SAMPLE_SCREENSHOT_TEXTS[0],
+      noisySecondScreenshot,
+      SAMPLE_SCREENSHOT_TEXTS[2],
+    ]);
+
+    const { root, app } = createOfflineApp({ ocrManager: manager });
+    await app.ready;
+
+    const imageFiles = [createFakeImage(1), createFakeImage(2), createFakeImage(3)];
+    const results = await app.loadFiles(imageFiles);
+    const ocrResult = results[0];
+
+    expect(manager.calls).toEqual([1, 2, 3]);
+    expect(ocrResult.errors).toEqual([]);
+    expect(ocrResult.records).toHaveLength(13);
+    // Örtüşen satır (6 Eki glm-5.3) yalnızca bir kez sayılır.
+    expect(ocrResult.skippedDuplicates).toBe(1);
+
+    const state = app.store.getState();
+    expect(state.records).toHaveLength(13);
+    expect(state.summary.totalTokens).toBe(333698885);
+    expect(formatTokenCount(state.summary.totalTokens).full).toBe('333.698.885');
+    expect(state.summary.totalRequests).toBe(4044);
+    expect(formatCostDisplay(state.summary.totalCostUSD)).toBe('$13.80');
+
+    // İlerleme çubuğu, tablo ve bildirimler
+    expect(root.querySelector(`#${PROGRESS_BANNER_ID}`).dataset.step).toBe('done');
+    expect(root.querySelectorAll(`#${TABLE_CONTAINER_ID} tbody tr`)).toHaveLength(13);
+    expect(app.toasts.success).toBeGreaterThan(0);
+  });
+
+  it('okunamayan görselde akış durmaz, diğer görseller işlenir', async () => {
+    const manager = createFakeOCRManager([SAMPLE_SCREENSHOT_TEXTS[2], undefined]);
+
+    const { app } = createOfflineApp({ ocrManager: manager });
+    await app.ready;
+
+    const results = await app.loadFiles([createFakeImage(1), createFakeImage(2)]);
+    const ocrResult = results[0];
+
+    expect(ocrResult.errors).toHaveLength(1);
+    expect(ocrResult.errors[0].file).toBe('ekran-2.png');
+    expect(ocrResult.records).toHaveLength(3);
+    expect(app.store.getState().records).toHaveLength(3);
+  });
+});
