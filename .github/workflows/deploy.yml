@@ -1,0 +1,82 @@
+# Faz 47: TokenCost FinOps Analyzer — sürekli entegrasyon ve GitHub Pages dağıtımı.
+# Kural: 47 fazın tamamı (Vitest) yeşil geçmezse Pages dağıtımı DURDURULUR.
+name: CI/CD - Test ve GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Vitest (47 faz sözleşmesi)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node.js 20 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: Testleri çalıştır (npm test)
+        run: npm test
+
+  build:
+    name: Pages paketi hazırla
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Pages ayarlarını hazırla
+        uses: actions/configure-pages@v5
+
+      - name: Yayın paketini hazırla (yalnızca statik dosyalar)
+        run: |
+          # Zero-backend: tarayıcının ihtiyaç duyduğu dosyalar sırayla kopyalanır.
+          # Testler, node_modules ve .git yayına GİRMEZ.
+          mkdir -p dist
+          cp index.html styles.css dist/
+          cp -R src dist/src
+          echo "Yayın paketi:"
+          find dist -type f | sort
+          # Sözleşme: giriş noktaları pakette olmak zorunda.
+          test -f dist/index.html
+          test -f dist/styles.css
+          test -f dist/src/main.js
+
+      - name: Statik siteyi yükle
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    name: GitHub Pages'e yayınla
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Yayınla
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,16 @@
+# Faz 47: Tüm metin dosyalarında satır sonlarını LF'e sabitle (Windows/Linux/git tutarlılığı).
+* text=auto eol=lf
+
+# İkili dosyalar (dönüşüm yapılmaz).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.pdf binary
+
+# GitHub Actions bağımlılıkları ve kilit dosyası
+package-lock.json text eol=lf
+
+# Yerel geliştirme çıktıları (dağıtıma girmez).
+node_modules/ export-ignore

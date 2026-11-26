@@ -1,0 +1,693 @@
+/* styles.css
+   Faz 47: TokenCost FinOps Analyzer tema ve yazdırma (print/PDF) stilleri.
+   - Koyu tema varsayılan, açık tema kök elementteki data-theme="light" ile gelir.
+   - @media print: girdi kutuları/butonlar gizlenir (.no-print); yalnızca FinOps
+     kartları, grafik, rapor tablosu ve "Made by Burak Yıldız" imzası basılır.
+   - Sabit sınıf adları src/ui bileşenleriyle birebir hizalıdır. */
+
+/* --- Tasarım belirteçleri (dark varsayılan) --- */
+:root,
+[data-theme='dark'] {
+  --bg: #0b1120;
+  --bg-glow: #1e293b;
+  --surface: #131c31;
+  --surface-muted: #0f172a;
+  --border: #22304d;
+  --text: #e6edf7;
+  --text-muted: #9aa8c2;
+  --accent: #38bdf8;
+  --accent-strong: #0ea5e9;
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --shadow: 0 18px 40px rgba(2, 6, 23, 0.55);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+}
+
+[data-theme='light'] {
+  --bg: #f4f7fb;
+  --bg-glow: #dbeafe;
+  --surface: #ffffff;
+  --surface-muted: #eef2f9;
+  --border: #d5deeb;
+  --text: #0f172a;
+  --text-muted: #56637a;
+  --accent: #0284c7;
+  --accent-strong: #0369a1;
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.12);
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1100px 520px at 12% -8%, var(--bg-glow) 0%, transparent 62%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Kök element kendi temasını taşır; sayfa çerçevesi de onu takip eder. */
+body:has(#app[data-theme='light']) {
+  background:
+    radial-gradient(1100px 520px at 12% -8%, var(--bg-glow) 0%, transparent 62%),
+    var(--bg);
+  color: var(--text);
+}
+
+/* --- Erişilebilirlik --- */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: #04121f;
+  border-radius: 0 0 var(--radius-sm) 0;
+  font-weight: 600;
+  z-index: 50;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tokencost-app {
+  width: min(1180px, 100% - 32px);
+  margin: 0 auto;
+  padding: 40px 0 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.section-title {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* --- Üst başlık ve giriş paneli --- */
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.app-title {
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.6rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.app-title span {
+  background: linear-gradient(92deg, var(--accent), var(--success));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.app-tagline {
+  margin: 0;
+  max-width: 74ch;
+  color: var(--text-muted);
+}
+
+.input-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.input-hint {
+  flex: 1 1 320px;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.btn-demo,
+.btn-theme-toggle,
+.btn-export,
+.btn-add-row {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  padding: 10px 18px;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.btn-demo {
+  border-color: transparent;
+  background: linear-gradient(96deg, var(--accent-strong), var(--success));
+  color: #04121f;
+  box-shadow: 0 10px 24px rgba(14, 165, 233, 0.28);
+}
+
+.btn-demo:hover,
+.btn-theme-toggle:hover,
+.btn-export:hover,
+.btn-add-row:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.currency-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.currency-select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+}
+
+/* --- FinOps özet kartları --- */
+.cards-section,
+.chart-section,
+.table-section {
+  padding: 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.finops-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.finops-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.finops-card--accent {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.25);
+}
+
+.finops-card--success {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.finops-card-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.finops-card-value {
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.finops-card-badge {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--success);
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.finops-card-badge:empty {
+  display: none;
+}
+
+/* --- Halka (donut) grafik: saf SVG --- */
+.chart-section .donut-chart {
+  display: block;
+  width: min(340px, 100%);
+  height: auto;
+  margin: 0 auto;
+}
+
+.donut-track {
+  opacity: 0.45;
+}
+
+.donut-segment {
+  transition: opacity 150ms ease;
+}
+
+.donut-segment:hover {
+  opacity: 0.82;
+}
+
+/* --- Kullanım tablosu (satır içi düzenlenebilir) --- */
+.table-section {
+  overflow-x: auto;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.usage-table thead th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.usage-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.usage-table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.usage-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.usage-table .cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-table .cell[data-field='model'] {
+  font-weight: 600;
+  min-width: 190px;
+}
+
+.usage-table .cell[data-field='requests'],
+.usage-table .cell[data-field='totalTokens'],
+.usage-table .cell[data-field='cachedTokens'],
+.usage-table .cell[data-field='billedTokens'],
+.usage-table .cell[data-field='totalCostUSD'] {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.cell-input {
+  width: 100%;
+  font: inherit;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+
+.usage-table-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.usage-summary {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.usage-summary-value {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+
+/* --- OCR / işlem ilerleme çubuğu --- */
+#progress-banner.progress-banner.hidden {
+  display: none;
+}
+
+#progress-banner .progress-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--success));
+  transition: width 200ms ease;
+}
+
+.progress-message {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+/* --- Bildirimler (toast) --- */
+.toast-region {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  max-width: min(380px, calc(100vw - 40px));
+}
+
+.toast-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast {
+  position: relative;
+  padding: 14px 40px 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  animation: toast-in 180ms ease-out;
+}
+
+.toast--info {
+  border-left-color: var(--accent);
+}
+
+.toast--success {
+  border-left-color: var(--success);
+}
+
+.toast--warning {
+  border-left-color: var(--warning);
+}
+
+.toast--error {
+  border-left-color: var(--danger);
+}
+
+.toast-title {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.toast-message {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.toast-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Altbilgi: dışa aktarma araç çubuğu + imza --- */
+.footer-region {
+  margin-top: 8px;
+}
+
+.app-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.export-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-export {
+  border-radius: var(--radius-sm);
+}
+
+.btn-export--csv {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.btn-export--pdf {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.app-signature {
+  display: block;
+  font-size: 0.82rem;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* --- Duyarlı yerleşim --- */
+@media (max-width: 720px) {
+  .tokencost-app {
+    padding: 24px 0 48px;
+  }
+
+  .input-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn-demo,
+  .btn-theme-toggle,
+  .currency-select {
+    width: 100%;
+  }
+
+  .toast-region {
+    left: 16px;
+    right: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* --- Yazdırma / PDF: yalnızca FinOps raporu ve imza basılır --- */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  /* Girdi kutuları, butonlar, ilerleme çubuğu ve bildirimler kâğıda girmez. */
+  .no-print,
+  .skip-link,
+  .input-panel,
+  .progress-banner,
+  .toast-region,
+  .btn-add-row,
+  .export-toolbar,
+  .cell-input {
+    display: none !important;
+  }
+
+  :root,
+  [data-theme='dark'],
+  [data-theme='light'] {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-muted: #f6f8fb;
+    --border: #c9d3e0;
+    --text: #101828;
+    --text-muted: #475467;
+    --accent: #0b5cad;
+    --success: #067647;
+    --shadow: none;
+  }
+
+  body,
+  body:has(#app[data-theme='light']) {
+    background: #ffffff;
+    color: #101828;
+    font-size: 11pt;
+  }
+
+  .tokencost-app {
+    width: 100%;
+    padding: 0;
+    gap: 12pt;
+  }
+
+  /* Rapor bölümleri: kartlar, grafik ve tablo tam genişlikte ve çerçevesiz. */
+  .cards-section,
+  .chart-section,
+  .table-section {
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    break-inside: avoid;
+  }
+
+  .finops-cards {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6pt;
+  }
+
+  .finops-card {
+    background: #ffffff;
+    border: 1px solid #c9d3e0;
+  }
+
+  .donut-chart {
+    width: 62mm;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .usage-table {
+    font-size: 9pt;
+    page-break-inside: auto;
+  }
+
+  .usage-table thead {
+    display: table-header-group;
+  }
+
+  .usage-table thead th {
+    position: static;
+    background: #f2f5fa;
+    color: #101828;
+    border-bottom: 1px solid #98a2b3;
+  }
+
+  .usage-table tbody tr {
+    break-inside: avoid;
+  }
+
+  .usage-table tbody tr:nth-child(even),
+  .usage-table tbody tr:hover {
+    background: transparent;
+  }
+
+  .usage-summary-value {
+    color: #101828;
+  }
+
+  .app-footer {
+    border-top: 1px solid #c9d3e0;
+    padding-top: 6pt;
+  }
+
+  /* İmza her zaman en altta, küçük tipografiyle basılır. */
+  .app-signature {
+    color: #475467;
+    font-size: 9pt;
+    letter-spacing: 0.08em;
+  }
+}
+
+

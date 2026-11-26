@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TokenCost FinOps Analyzer — LLM Kota ve Önbellek ROI Hesaplayıcı</title>
+    <meta
+      name="description"
+      content="Ekran görüntüsünden veya tablo metninden LLM token kullanımını okuyup önbellek tasarrufunu, aylık faturayı ve FinOps ROI'yi saniyeler içinde hesaplayan sunucusuz (zero-backend) analiz aracı."
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="author" content="Burak Yıldız" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f172a'/%3E%3Cpath d='M8 20l4-8 4 12 4-12 4 8' stroke='%2338bdf8' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+    <!-- OCR yalnızca görsel yüklendiğinde kullanılır; CDN erişilemezse metin/CSV akışı çalışmaya devam eder. -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link no-print" href="#usage-table">İçeriğe geç</a>
+
+    <main id="app" class="tokencost-app" role="main" aria-label="TokenCost FinOps analiz paneli">
+      <header class="app-header no-print">
+        <h1 class="app-title">TokenCost <span>FinOps Analyzer</span></h1>
+        <p class="app-tagline">
+          Ekran görüntüsünden veya tablo metninden LLM maliyetini ve önbellek ROI'sini hesapla:
+          <strong>%100 tarayıcıda</strong>, sunucu yok, veri cihazdan çıkmaz.
+        </p>
+
+        <section id="input-panel" class="input-panel no-print" aria-label="Veri girişi">
+          <button id="btn-load-demo" type="button" class="btn-demo">
+            Örnek Konsol Verisi Yükle (333.7M Token)
+          </button>
+
+          <label class="currency-field" for="currency-select">
+            <span>Para birimi</span>
+            <select id="currency-select" class="currency-select" name="currency">
+              <option value="USD">USD</option>
+              <option value="TRY">TRY</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </label>
+
+          <button id="btn-theme-toggle" type="button" class="btn-theme-toggle" aria-pressed="true">
+            Açık Tema
+          </button>
+
+          <p class="input-hint">
+            <strong>Ctrl+V</strong> ile konsol tablonuzu yapıştırın, <strong>ekran görüntülerini</strong>
+            (PNG/JPG/JPEG/WEBP) sürükleyin veya <strong>CSV/TXT</strong> dosyası bırakın.
+          </p>
+        </section>
+      </header>
+
+      <div
+        id="progress-banner"
+        class="progress-banner no-print hidden"
+        role="status"
+        aria-live="polite"
+        aria-label="OCR ilerlemesi"
+      ></div>
+
+      <section class="cards-section" aria-label="FinOps özet kartları">
+        <h2 class="section-title">FinOps Özeti</h2>
+        <div id="finops-cards"></div>
+      </section>
+
+      <section class="chart-section" aria-label="Model bazlı maliyet dağılımı">
+        <h2 class="section-title">Model Bazlı Maliyet Dağılımı</h2>
+        <div id="cost-chart"></div>
+      </section>
+
+      <section class="table-section" aria-label="Kullanım ve kota tablosu">
+        <h2 class="section-title">Kullanım &amp; Kota Tablosu</h2>
+        <div id="usage-table"></div>
+      </section>
+
+      <div id="toast-container" class="toast-region no-print" role="region" aria-live="polite"></div>
+
+      <div id="app-footer" class="footer-region"></div>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

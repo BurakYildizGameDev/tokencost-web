@@ -3,7 +3,7 @@
 // Faz 43 - 46: Uçtan uca (E2E) senaryo testleri.
 // Faz 43: Örnek konsol veri seti (demo-data) | Faz 44: Uygulama orkestratörü
 // Faz 45: Ham metin -> fatura -> .csv / .pdf akışı | Faz 46: Çoklu görsel OCR + tekilleştirme
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   DEMO_BUTTON_ID,
   DEMO_BUTTON_LABEL,
@@ -274,6 +274,11 @@ describe('Faz 44: Ana uygulama orkestratörü (initApp)', () => {
   });
 
   it('.csv ve .pdf butonları export servislerine bağlanır (imza güvenliği)', async () => {
+    // jsdom gerçek indirmeyi desteklemez ("Not implemented: navigation"); anchor tıklamasını izole ederiz.
+    const anchorClickSpy = vi
+      .spyOn(window.HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
     const generated = [];
     const { root, app } = createOfflineApp({
       URL: { createObjectURL: () => 'blob:token', revokeObjectURL: () => {} },
@@ -290,7 +295,12 @@ describe('Faz 44: Ana uygulama orkestratörü (initApp)', () => {
     expect(csvButton.getAttribute('aria-label')).toBe('CSV raporunu indir');
     expect(pdfButton.getAttribute('aria-label')).toBe('PDF raporu oluştur');
 
+    // Buton gerçekten servise bağlı: tıklama indirme akışını (anchor click) tetikler.
+    csvButton.click();
+    expect(anchorClickSpy).toHaveBeenCalledTimes(1);
+
     const csvResult = app.exportCSV();
+    expect(anchorClickSpy).toHaveBeenCalledTimes(2);
     expect(csvResult.filename).toBe('tokencost-report.csv');
     expect(csvResult.objectUrl).toBe('blob:token');
     expect(csvResult.blob.size).toBeGreaterThan(0);
@@ -301,6 +311,8 @@ describe('Faz 44: Ana uygulama orkestratörü (initApp)', () => {
     expect(generated[0].html).toContain(SIGNATURE_TEXT);
     expect(generated[0].html).toContain('$13.80');
     expect(app.toasts.success).toBeGreaterThanOrEqual(2);
+
+    anchorClickSpy.mockRestore();
   });
 
   it('dışa aktarımda veri yoksa uyarı verir (boş rapor üretmez)', async () => {
